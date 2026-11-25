@@ -1,6 +1,6 @@
 // goal build [app] | goal start [app] [--port N] | goal dev [app] [--port N]
 
-import { build, serve, dev, BUDGET } from './build.js';
+import { build, serve, dev } from './build.js';
 
 const USAGE = 'usage: goal build|start|dev [app folder] [--port 3000]';
 
@@ -13,7 +13,7 @@ export async function main(argv, log = console.log) {
     try {
       const r = await build(app);
       for (const route of r.routes) log(route);
-      for (const c of r.chunks) log(`${c.url}  ${c.bytes} B, ${c.gzip} B gzipped (budget ${BUDGET})`);
+      for (const c of r.chunks) log(`${c.url}  ${c.bytes} B, ${c.gzip} B gzipped`);
       log(`loader  ${r.loader} B gzipped, inline`);
       return 0;
     } catch (e) {

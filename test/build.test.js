@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, cpSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { build, serve, dev, BUDGET } from '../src/build.js';
+import { build, serve, dev } from '../src/build.js';
 import { main } from '../src/cli.js';
 import { TMP } from './helpers.js';
 
@@ -29,7 +29,7 @@ afterAll(() => Promise.all(servers.map((s) => new Promise((ok) => s.close(ok))))
 const COUNTER = 'export function C() { var n = 0; return <b onclick={() => n++}>{n}</b>; }';
 
 describe('build', () => {
-  it('builds the demo: routes, chunks under budget, public files', async () => {
+  it('builds the demo: routes, chunks and their sizes, public files', async () => {
     const dir = app();
     mkdirSync(join(dir, 'node_modules/x'), { recursive: true });
     writeFileSync(join(dir, 'node_modules/x/Bad.goal'), 'not goal at all <');
@@ -64,9 +64,8 @@ describe('build', () => {
       const code = readFileSync(join(dir, 'dist/client', c.url), 'utf8');
       expect(c.gzip).toBe(gzipSync(code).length);
       expect(c.bytes).toBe(Buffer.byteLength(code));
-      expect(c.gzip).toBeLessThanOrEqual(BUDGET);
     }
-    expect(r.loader).toBeLessThanOrEqual(BUDGET);
+    expect(r.loader).toBeGreaterThan(0);
     expect(readFileSync(join(dir, 'dist/server/app.js'), 'utf8')).toContain(`from './components/Counter.js?v=${r.version}'`);
     expect(readFileSync(join(dir, 'dist/server/_routes.js'), 'utf8')).toBe(
       `import { _$routes as r0 } from './app.js?v=${r.version}';\nimport { _$routes as r1 } from './components/Board.js?v=${r.version}';\nexport default [...r0, ...r1];\n`,
@@ -79,7 +78,7 @@ describe('build', () => {
     const dir = join(TMP, `virtual${process.pid}`);
     rmSync(dir, { recursive: true, force: true });
     cpSync(join(import.meta.dirname, '../examples/virtual'), dir, { recursive: true, filter: (s) => !s.includes('dist') });
-    const r = await build(dir, { budget: 2048 }); // one component: its chunk also carries the helpers several would share
+    const r = await build(dir);
     expect(r.chunks.map((c) => c.url).sort()).toEqual(['/c/_/keyed.js', '/c/components/VirtualList.VirtualList.js']);
     const html = await (await fetch(`${listen(await serve(dir, { port: 0 }))}/`)).text();
     expect(html.match(/ m-r="/g)).toHaveLength(24);
@@ -100,11 +99,6 @@ describe('build', () => {
     expect(existsSync(join(dir, 'dist/server/data.json'))).toBe(true);
     expect(existsSync(join(dir, 'dist/server/goal.config.js'))).toBe(false);
     expect(existsSync(join(dir, 'dist/public'))).toBe(false);
-  });
-
-  it('fails a chunk, or the loader, over budget', async () => {
-    const dir = app({ 'C.goal': COUNTER });
-    await expect(build(dir, { budget: 10 })).rejects.toThrow(/\/c\/C\.C\.js is \d+ B gzipped, over the 10 B budget\n(.*\n)*the loader is \d+ B gzipped/);
   });
 
   it('keeps dev chunks readable with source maps, under a public path', async () => {
@@ -205,7 +199,7 @@ describe('cli', () => {
     const out = log.join('\n');
     expect(out).toContain('GET /users/{name}\n');
     expect(out).toContain('server function addNote  POST /_m/components/Board/addNote');
-    expect(out).toMatch(/\/c\/components\/Counter\.Counter\.js {2}\d+ B, \d+ B gzipped \(budget 1024\)/);
+    expect(out).toMatch(/\/c\/components\/Counter\.Counter\.js {2}\d+ B, \d+ B gzipped$/m);
     expect(out).toMatch(/loader {2}\d+ B gzipped, inline/);
   });
 

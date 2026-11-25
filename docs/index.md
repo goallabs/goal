@@ -9,8 +9,8 @@ A compiled JavaScript framework where **`var` is state** and **`let`/`const` are
 
 - **Server-rendered and resumable.** Pages are rendered on the server, and the browser resumes them
   instead of hydrating: no component code runs at load.
-- **Small.** Each component's code, at most 1 KB gzipped, loads on its first event. A page with no
-  events ships no JavaScript at all.
+- **Small.** Each component's code loads on its first event, in a chunk of its own: 270 to 550 B
+  gzipped in the demo app. A page with no events ships no JavaScript at all.
 - **No `async`, no `fetch`.** Components reach the server through [server functions](server-functions),
   called like plain functions.
 - **Secure by default.** Escaping, URL checks, a strict Content-Security-Policy, CSRF protection and

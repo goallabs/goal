@@ -64,8 +64,6 @@ goal build <app>    # compile into <app>/dist; prints the routes and each chunk'
 goal start <app>    # serve a built app (--port 3000)
 ```
 
-`goal build` fails if a component's chunk is over 1 KB gzipped, and prints each chunk's size.
-
 ## What goes in an app
 
 - `.goal` files, anywhere in the folder: [routes](routes) and [components](components).

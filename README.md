@@ -2,8 +2,9 @@
 
 A compiled JavaScript framework where **`var` is state** and **`let`/`const` are computed**. Pages are
 rendered on the server and the browser **resumes** them instead of hydrating: no component code runs at
-load, and each component's code (at most **1 KB gzipped**) loads on its first event. Components reach the
-server through **server functions**, with no `async` and no `fetch`. It is **secure by default**.
+load, and each component's code, in a small chunk of its own, loads on its first event. Components
+reach the server through **server functions**, with no `async` and no `fetch`. It is **secure by
+default**.
 
 **Documentation: <https://goallabs.github.io/goal/>**
 

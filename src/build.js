@@ -17,7 +17,6 @@ import { desugar } from './syntax.js';
 import { loaderScript } from './server.js';
 import { createApp } from './app.js';
 
-export const BUDGET = 1024; // gzipped bytes per component chunk, and for the loader
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const RT = pathToFileURL(join(SRC, 'rt.js')).href;
@@ -61,12 +60,12 @@ const entriesPlugin = (entries) => {
 };
 
 /**
- * Compiles an app into dist/. Throws on a compile error, a duplicate route, or a chunk over budget.
+ * Compiles an app into dist/. Throws on a compile error or a duplicate route.
  * `dev` keeps chunks readable with source maps back to the .goal files; otherwise they are minified
  * and the source stays on the server. `publicPath` is where the site is served from.
  * @returns {Promise<{ version: string, chunks: { url: string, bytes: number, gzip: number }[], loader: number, routes: string[] }>}
  */
-export async function build(app, { out = join(app, 'dist'), budget = BUDGET, dev = false, publicPath = '/' } = {}) {
+export async function build(app, { out = join(app, 'dist'), dev = false, publicPath = '/' } = {}) {
   const version = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const chunks = [];
   const routes = [];
@@ -129,7 +128,7 @@ export async function build(app, { out = join(app, 'dist'), budget = BUDGET, dev
       const to = posix.relative(from, '_/keyed.js');
       return f.text.replaceAll(`"${KEYED}"`, JSON.stringify(to.startsWith('.') ? to : './' + to));
     };
-    const files = (await bundle(true)).map((f) => ({ path: f.path, text: link(f) })); // the budget is for what production ships
+    const files = (await bundle(true)).map((f) => ({ path: f.path, text: link(f) })); // the sizes reported are what production ships
     for (const f of dev ? (await bundle(false)).map((f) => ({ path: f.path, text: link(f) })) : files) write(f.path, f.text);
     for (const f of files) {
       const rel = relative(resolve(out, 'client'), f.path).split(sep).join('/');
@@ -142,10 +141,7 @@ export async function build(app, { out = join(app, 'dist'), budget = BUDGET, dev
       `export default [${routeFiles.map((_, i) => `...r${i}`).join(', ')}];\n`,
   );
   if (existsSync(join(app, 'public'))) cpSync(join(app, 'public'), join(out, 'public'), { recursive: true });
-  const loader = gzipSync(loaderScript()).length;
-  const over = [...chunks, { url: 'the loader', gzip: loader }].filter((c) => c.gzip > budget);
-  if (over.length) throw new Error(over.map((c) => `${c.url} is ${c.gzip} B gzipped, over the ${budget} B budget`).join('\n'));
-  return { version, chunks, loader, routes: routes.map((r) => r.label) };
+  return { version, chunks, loader: gzipSync(loaderScript()).length, routes: routes.map((r) => r.label) };
 }
 
 /** Serves a built app. `dev` shows error details; `version` names the build to load. */

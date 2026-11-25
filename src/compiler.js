@@ -965,7 +965,7 @@ function propKeys(fn) {
   return keys;
 }
 
-/** Removes imports and helper functions the component doesn't use, so they don't count toward its 1 KB. */
+/** Removes imports and helper functions the component doesn't use, so they don't ship. */
 function prune(prog, keep) {
   for (let removed = true; removed; ) {
     removed = false;

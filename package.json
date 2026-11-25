@@ -1,7 +1,7 @@
 {
   "name": "goaljs",
-  "version": "0.1.0",
-  "description": "goal.js: var is state, let/const are computed, SSR + resumable, 1 KB per component",
+  "version": "0.1.1",
+  "description": "goal.js: var is state, let/const are computed, server-rendered and resumable",
   "homepage": "https://goallabs.github.io/goal/",
   "repository": {
     "type": "git",

@@ -209,9 +209,7 @@ const kb = (b) => `${(b / 1024).toFixed(1)} kB`;
 const mb = (b) => `${(b / 1048576).toFixed(2)} MB`;
 
 async function main() {
-  // Like the js-framework-benchmark entry, this app has one component, so its chunk carries the
-  // helpers that several components would share in their own chunk: the budget is raised here only.
-  const built = await build(APP, { budget: 2048 });
+  const built = await build(APP);
   const server = await serve(APP, { port: 0, log: () => {} });
   const url = `http://localhost:${server.address().port}/`;
   const chrome = await launch();

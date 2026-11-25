@@ -1,5 +1,5 @@
 title: goal.js
-description: A compiled JavaScript framework where var is state and let/const are computed. Server-rendered, resumable, at most 1 KB of JavaScript per component, secure by default.
+description: A compiled JavaScript framework where var is state and let/const are computed. Server-rendered, resumable, a small chunk of JavaScript per component, secure by default.
 url: https://goallabs.github.io
 baseurl: /goal
 
