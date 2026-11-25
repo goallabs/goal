@@ -1,0 +1,49 @@
+// A note board saved on the server. The component calls server functions like plain functions:
+// no async, no fetch. goal.js sends the request and waits, and the page updates when it answers.
+
+const store = [];
+let nextId = 1;
+
+export server function listNotes() {
+  return store;
+}
+
+export server function addNote(text) {
+  const clean = String(text).trim().slice(0, 200);
+  if (clean) store.push({ id: nextId++, text: clean });
+  return store;
+}
+
+export server function removeNote(id) {
+  const i = store.findIndex((n) => n.id === id);
+  if (i >= 0) store.splice(i, 1);
+  return store;
+}
+
+export function Board({ initial }) {
+  var notes = initial;
+  var text = '';
+  var saving = false;
+
+  function add() {
+    saving = true;
+    notes = addNote(text);
+    text = '';
+    saving = false;
+  }
+
+  return (
+    <form class="card" onsubmit={add}>
+      <input value={text} oninput={(e) => (text = e.target.value)} placeholder="A note, saved on the server" />
+      <button disabled={saving}>{if (saving) 'Saving…' else 'Add'}</button>
+      <p>{if (notes.length === 0) 'No notes yet.' else if (notes.length === 1) 'One note.' else `${notes.length} notes.`}</p>
+      <ul>
+        {notes.map((n) => (
+          <li key={n.id}>
+            {n.text} <button type="button" onclick={() => (notes = removeNote(n.id))}>remove</button>
+          </li>
+        ))}
+      </ul>
+    </form>
+  );
+}

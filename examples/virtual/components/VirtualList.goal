@@ -1,0 +1,57 @@
+// A virtual list of 100,000 rows: only the rows in view, and a few around them, are in the page.
+// Rows differ in structure (a badge that comes and goes, a list of tags of any length, a meter), and
+// Update changes every row's values and some rows' structure, the way live data would. Each row is
+// worked out from its index, so the page carries no data. bench/virtual.mjs measures it.
+
+const COUNT = 100000;
+const ROW = 32; // px, the row height in style.css
+const VIEW = 640; // px, the viewport height in style.css
+const EXTRA = 4; // rows drawn above and below the viewport
+const WORDS = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf'];
+
+function row(i, tick) {
+  return {
+    id: i,
+    name: `${WORDS[i % 7]} ${WORDS[(i * 3 + tick) % 7]}`,
+    kind: i % 4,
+    hot: (i + tick) % 3 === 0,
+    tags: WORDS.slice(0, (i + tick) % 4),
+    value: (i * 7919 + tick * 104729) % 1000,
+  };
+}
+
+export function VirtualList() {
+  var top = 0;
+  var tick = 0;
+  var picked = -1;
+  const first = Math.max(0, Math.floor(top / ROW) - EXTRA);
+  const last = Math.min(COUNT, Math.ceil((top + VIEW) / ROW) + EXTRA);
+  const rows = Array.from({ length: last - first }, (_, k) => row(first + k, tick));
+
+  return (
+    <section class="virtual">
+      <p class="bar">
+        <button id="update" type="button" onclick={() => tick++}>Update</button>
+        <span id="range">rows {first} to {last - 1} of {COUNT}</span>
+      </p>
+      <div id="viewport" class="viewport" onscroll={(e) => (top = e.target.scrollTop)}>
+        <div style={`height:${first * ROW}px`}></div>
+        <div class="rows">
+          {rows.map((r) => (
+            <div key={r.id} class={r.id === picked ? 'row on' : 'row'} data-id={r.id} onclick={() => (picked = r.id)}>
+              <span class="id">{r.id}</span>
+              <span class="name">{r.name}</span>
+              <span class="extra">
+                {if (r.kind === 1) <b class={r.hot ? 'hot' : 'cold'}>{r.hot ? 'hot' : 'cold'}</b>
+                else if (r.kind === 2) r.tags.map((t) => <i>{t}</i>)
+                else if (r.kind === 3) <meter min="0" max="1000" value={r.value}></meter>}
+              </span>
+              <span class="value">{r.value}</span>
+            </div>
+          ))}
+        </div>
+        <div style={`height:${(COUNT - last) * ROW}px`}></div>
+      </div>
+    </section>
+  );
+}

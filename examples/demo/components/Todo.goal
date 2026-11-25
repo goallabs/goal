@@ -1,0 +1,21 @@
+export function Todo() {
+  var items = [];
+  var text = '';
+  const left = items.length;
+
+  function add() {
+    if (!text.trim()) return;
+    items = [...items, text.trim()];
+    text = '';
+  }
+
+  return (
+    <form class="card" onsubmit={add}>
+      <input value={text} oninput={(e) => (text = e.target.value)} placeholder="What needs doing?" />
+      <button>Add</button>
+      <button type="button" onclick={() => (items = [])} disabled={left === 0}>Clear</button>
+      <p>{if (left === 0) 'Nothing to do' else if (left === 1) 'One thing to do' else `${left} things to do`}</p>
+      <ul>{items.map((t) => <li>{t}</li>)}</ul>
+    </form>
+  );
+}

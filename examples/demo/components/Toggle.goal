@@ -1,0 +1,12 @@
+export function Toggle({ label }) {
+  var open = false;
+
+  return (
+    <section class="card">
+      <button onclick={() => (open = !open)} aria-expanded={if (open) 'true' else 'false'}>
+        {if (open) 'Hide' else 'Show'} {label}
+      </button>
+      {if (open) <p>This part was rendered only when you clicked: the page loaded no JavaScript for it until then.</p>}
+    </section>
+  );
+}

@@ -1,0 +1,5 @@
+body{font-family:system-ui;max-width:40rem;margin:2rem auto;padding:0 1rem}
+nav a{margin-right:.75rem}
+.card{border:1px solid #ccc;border-radius:8px;padding:.75rem 1rem;margin:.75rem 0}
+.odd strong{color:#b45309}
+.even strong{color:#1d4ed8}

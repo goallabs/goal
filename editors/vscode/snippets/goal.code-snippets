@@ -1,0 +1,27 @@
+{
+  "Route": {
+    "prefix": "route",
+    "description": "A route: runs on the server, once per request",
+    "body": ["route ${1|GET,POST,PUT,PATCH,DELETE|} /${2:path} {", "\treturn $0;", "}"]
+  },
+  "Component": {
+    "prefix": "component",
+    "description": "A component: var is state, let/const are computed",
+    "body": [
+      "export function ${1:Name}(${2:{ ${3:start} \\}}) {",
+      "\tvar ${4:count} = ${5:0};",
+      "",
+      "\treturn (",
+      "\t\t<div>",
+      "\t\t\t$0",
+      "\t\t</div>",
+      "\t);",
+      "}"
+    ]
+  },
+  "Server function": {
+    "prefix": "server",
+    "description": "A server function: components call it like a plain function, with no async and no fetch",
+    "body": ["export server function ${1:name}(${2}) {", "\t$0", "}"]
+  }
+}

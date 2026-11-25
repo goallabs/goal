@@ -1,0 +1,93 @@
+{
+  "name": "goal-vscode",
+  "displayName": "goal.js",
+  "description": "goal.js (.goal) in VS Code: highlighting for routes, server functions and {if} in markup, and the compiler's errors as you type.",
+  "version": "0.1.0",
+  "publisher": "goaljs",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Snippets"
+  ],
+  "keywords": [
+    "goal",
+    "goaljs",
+    "jsx",
+    "ssr"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In a folder you haven't trusted, files are checked with the copy of the goal.js compiler the extension carries: the folder's own goal.js is code, and isn't run until you trust the folder."
+    },
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "Checking needs files on disk; highlighting works everywhere."
+    }
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "goal",
+        "aliases": [
+          "goal.js",
+          "goal"
+        ],
+        "extensions": [
+          ".goal"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/goal.svg",
+          "dark": "./icons/goal.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "goal",
+        "scopeName": "source.goal",
+        "path": "./syntaxes/goal.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.tag.js": "jsx-tags",
+          "meta.tag.without-attributes.js": "jsx-tags",
+          "meta.tag.attributes.js.jsx": "goal",
+          "meta.embedded.expression.js": "goal"
+        },
+        "tokenTypes": {
+          "punctuation.definition.template-expression": "other",
+          "entity.name.type.instance.jsdoc": "other",
+          "entity.name.function.tagged-template": "other",
+          "meta.import string.quoted": "other",
+          "variable.other.jsdoc": "other"
+        }
+      }
+    ],
+    "snippets": [
+      {
+        "language": "goal",
+        "path": "./snippets/goal.code-snippets"
+      }
+    ]
+  },
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs",
+    "vscode:prepublish": "node scripts/bundle.mjs",
+    "test": "node scripts/bundle.mjs && node --test test/*.test.mjs",
+    "test:vscode": "node scripts/bundle.mjs && node test/vscode/run.mjs",
+    "package": "vsce package --allow-missing-repository --skip-license --out goal.vsix"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.28.2",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
+  }
+}

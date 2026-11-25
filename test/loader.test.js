@@ -1,0 +1,289 @@
+// @vitest-environment happy-dom
+import { describe, it, expect, vi } from 'vitest';
+import { boot } from '../src/loader.js';
+import { render } from '../src/server.js';
+import { load } from './helpers.js';
+
+/** Server-renders a component into a fresh document and boots the loader on it. */
+async function mount(src, name, props, { defaultLoad = false } = {}) {
+  const t = await load(src);
+  const { html, events } = render(t.server[name], props);
+  const d = document.implementation.createHTMLDocument('t');
+  d.body.innerHTML = html;
+  const loads = [];
+  if (defaultLoad) {
+    for (const el of d.querySelectorAll('[m-c]')) el.setAttribute('m-c', t.chunks[el.getAttribute('m-c')]);
+    boot(d, events);
+  } else
+    boot(d, events, (u) => {
+      loads.push(u);
+      return t.loadChunk(u);
+    });
+  const $ = (q) => d.querySelector(q);
+  const fire = (q, type, init = {}) => {
+    const el = typeof q === 'string' ? $(q) : q;
+    const e = new (d.defaultView?.Event ?? Event)(type, { bubbles: true, cancelable: true, ...init });
+    el.dispatchEvent(e);
+    return e;
+  };
+  return { d, $, fire, loads, html };
+}
+
+const COUNTER = `
+export function Counter({ start = 0 }) {
+  var count = start;
+  const double = count * 2;
+  let label;
+  if (count >= 3) label = 'big';
+  else label = 'small';
+  return (
+    <div class={count % 2 ? 'odd' : 'even'}>
+      <button id="dec" onclick={() => count--}>-</button>
+      <strong>{count}</strong>
+      <button id="inc" onclick={() => count++}>+</button>
+      <p>{double} {label}</p>
+    </div>
+  );
+}
+export function Two() {
+  return <section><Counter /><Counter start={5} /></section>;
+}`;
+
+describe('resuming', () => {
+  it('runs nothing until an event, then loads the chunk once and patches what changed', async () => {
+    const { $, fire, loads } = await mount(COUNTER, 'Counter', {});
+    expect(loads).toEqual([]);
+    fire('#inc', 'click');
+    await vi.waitFor(() => expect($('strong').textContent).toBe('1'));
+    expect($('p').textContent).toBe('2 small');
+    expect($('div').getAttribute('class')).toBe('odd');
+    fire('#inc', 'click');
+    fire('#inc', 'click');
+    await vi.waitFor(() => expect($('strong').textContent).toBe('3'));
+    expect($('p').textContent).toBe('6 big');
+    fire('#dec', 'click');
+    await vi.waitFor(() => expect($('strong').textContent).toBe('2'));
+    expect(loads).toEqual(['/c/Counter.js']);
+  });
+
+  it('keeps each instance separate', async () => {
+    const { d, fire } = await mount(COUNTER, 'Two', {});
+    const [, second] = d.querySelectorAll('div');
+    fire(second.querySelector('#inc'), 'click');
+    await vi.waitFor(() => expect(second.querySelector('strong').textContent).toBe('6'));
+    expect(d.querySelector('strong').textContent).toBe('0');
+  });
+
+  it('loads with import() by default', async () => {
+    const { $, fire } = await mount(COUNTER, 'Counter', { start: 1 }, { defaultLoad: true });
+    fire('#inc', 'click');
+    await vi.waitFor(() => expect($('strong').textContent).toBe('2'));
+  });
+
+  it('starts loading on intent, and ignores intent outside components', async () => {
+    const { d, $, fire, loads } = await mount(COUNTER, 'Counter', {});
+    const outside = d.createElement('span');
+    d.body.append(outside);
+    fire(outside, 'pointerover');
+    d.dispatchEvent(new Event('focusin'));
+    expect(loads).toEqual([]);
+    fire('#inc', 'pointerover');
+    expect(loads).toEqual(['/c/Counter.js']);
+    fire('#inc', 'focusin');
+    expect(loads).toEqual(['/c/Counter.js']);
+    fire('#inc', 'click');
+    await vi.waitFor(() => expect($('strong').textContent).toBe('1'));
+    expect(loads).toEqual(['/c/Counter.js']);
+  });
+
+  it('ignores events with no handler on the way up', async () => {
+    const { $, fire, loads } = await mount(COUNTER, 'Counter', {});
+    fire('strong', 'click');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(loads).toEqual([]);
+    expect($('strong').textContent).toBe('0');
+  });
+});
+
+describe('patching', () => {
+  const FORM = `
+  export function Todo() {
+    var items = [];
+    var text = '';
+    var on = false;
+    const left = items.length;
+    return (
+      <form onsubmit={() => { items = [...items, text]; text = ''; }}>
+        <input id="t" value={text} oninput={(e) => (text = e.target.value)} onchange={() => (on = true)} />
+        <input id="c" type="checkbox" checked={on} onclick={() => (on = !on)} />
+        <input id="o" value={on && 'yes'} title={on ? 'on' : null} />
+        <button id="clear" type="button" onclick={() => (items = [])} disabled={left === 0}>Clear</button>
+        <p>{left} {on ? <b>on</b> : 'off'}</p>
+        <ul>{items.map((t) => <li>{t}</li>)}</ul>
+      </form>
+    );
+  }`;
+
+  it('updates values, checkboxes, attributes and lists', async () => {
+    const { $, fire } = await mount(FORM, 'Todo');
+    expect($('#clear').hasAttribute('disabled')).toBe(true);
+    $('#t').value = 'milk <b>';
+    fire('#t', 'input');
+    await vi.waitFor(() => expect($('#t').value).toBe('milk <b>'));
+    const submit = fire('form', 'submit');
+    expect(submit.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect($('ul').innerHTML).toBe('<!--0.7--><li>milk &lt;b&gt;</li><!--/-->')); // no keys: the list is made again as a whole
+    expect($('#t').value).toBe('');
+    expect($('#clear').getAttribute('disabled')).toBe(null);
+    expect($('p').textContent).toBe('1 off');
+
+    fire('#c', 'click');
+    await vi.waitFor(() => expect($('#c').checked).toBe(true));
+    expect($('#o').value).toBe('yes');
+    expect($('#o').getAttribute('title')).toBe('on');
+    expect($('p').innerHTML).toContain('<b>on</b>');
+
+    fire('#c', 'click');
+    await vi.waitFor(() => expect($('#c').checked).toBe(false));
+    expect($('#o').value).toBe('');
+    expect($('#o').hasAttribute('title')).toBe(false);
+
+    fire('#t', 'change');
+    await vi.waitFor(() => expect($('#c').checked).toBe(true));
+
+    fire('#clear', 'click');
+    await vi.waitFor(() => expect($('ul').innerHTML).toBe('<!--0.7--><!--/-->'));
+    expect($('#clear').getAttribute('disabled')).toBe('');
+  });
+
+  it('blocks unsafe URLs when patching too', async () => {
+    const { $, fire } = await mount(
+      `export function A() { var to = '/a'; return <div><a href={to}>x</a><button onclick={() => (to = 'javascript:alert(1)')}>b</button></div>; }`,
+      'A',
+    );
+    expect($('a').getAttribute('href')).toBe('/a');
+    fire('button', 'click');
+    await vi.waitFor(() => expect($('a').getAttribute('href')).toBe('about:invalid#blocked'));
+  });
+
+  it('handles a value that becomes null', async () => {
+    const { $, fire } = await mount(
+      `export function A() { var v = 'x'; return <div><input value={v} /><button onclick={() => (v = null)}>x</button></div>; }`,
+      'A',
+    );
+    expect($('input').getAttribute('value')).toBe('x');
+    fire('button', 'click');
+    await vi.waitFor(() => expect($('input').value).toBe(''));
+  });
+
+  it('survives a handler whose element is re-rendered away', async () => {
+    const { $, fire } = await mount(
+      `export function A() {
+        var open = true;
+        return <div onclick={() => {}}>{open && <button onclick={() => (open = false)}>close</button>}</div>;
+      }`,
+      'A',
+    );
+    fire('button', 'click');
+    await vi.waitFor(() => expect($('button')).toBe(null));
+  });
+
+  it('calls server functions, shows the state before they answer, and works without state or props', async () => {
+    let answer;
+    const fetch = vi.fn(() => new Promise((ok) => (answer = ok)));
+    vi.stubGlobal('fetch', fetch);
+    const { $, fire } = await mount(
+      `server function save(v) { return v; }
+      export function A() {
+        var msg = 'idle';
+        var count = 0;
+        return <p onclick={() => { msg = 'saving'; msg = save('done'); }} ondblclick={() => count++}>{msg}{count}</p>;
+      }
+      export function B() {
+        return <p onclick={() => {}}>static</p>;
+      }
+      export function Both() { return <div><A /><B /></div>; }`,
+      'Both',
+    );
+    fire('p', 'click');
+    await vi.waitFor(() => expect($('p').textContent).toBe('saving0'));
+    fire('p', 'dblclick'); // another handler runs while the server works
+    await vi.waitFor(() => expect($('p').textContent).toBe('saving1'));
+    expect(fetch).toHaveBeenCalledWith('/_m/App/save', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': '' },
+      body: '["done"]',
+    });
+    answer({ ok: true, json: async () => ({ v: 'done' }) });
+    await vi.waitFor(() => expect($('p').textContent).toBe('done1')); // the server's answer, and the other handler's change kept
+    const b = $('p + p');
+    fire(b, 'click');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(b.textContent).toBe('static');
+    vi.unstubAllGlobals();
+  });
+
+  it('runs the handlers of list items', async () => {
+    const { d, $, fire } = await mount(
+      `export function L() {
+        var items = ['a', 'b', 'c'];
+        var picked = '-';
+        return <div><ul>{items.map((x) => <li key={x} onclick={() => (picked = x)}><button onclick={() => (items = items.filter((y) => y !== x))}>x</button>{x}</li>)}</ul><p>{picked}</p></div>;
+      }`,
+      'L',
+    );
+    fire(d.querySelectorAll('li')[1], 'click');
+    await vi.waitFor(() => expect($('p').textContent).toBe('b'));
+    fire(d.querySelectorAll('li button')[0], 'click');
+    await vi.waitFor(() => expect([...d.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['xb', 'xc']));
+    expect($('p').textContent).toBe('a'); // the click bubbled to the li of a too, which ran with the same render
+    fire(d.querySelectorAll('li')[1], 'click');
+    await vi.waitFor(() => expect($('p').textContent).toBe('c'));
+  });
+
+  it('patches a keyed list in an {if} by key, and shows the else branch while it is off', async () => {
+    const { d, $, fire } = await mount(
+      `export function F() {
+        var items = [{ id: 1, t: 'a' }];
+        var on = true;
+        return (
+          <div>
+            <button id="on" onclick={() => (on = !on)}>on</button>
+            <button id="add" onclick={() => (items = [...items, { id: items.length + 1, t: 'n' }])}>add</button>
+            <ul>{if (on) items.map((x) => <li key={x.id} onclick={() => (items = items.filter((y) => y !== x))}>{x.t}</li>) else <li id="none">none</li>}</ul>
+          </div>
+        );
+      }`,
+      'F',
+    );
+    const texts = () => [...d.querySelectorAll('li')].map((l) => l.textContent);
+    const first = $('li');
+    fire('#add', 'click');
+    await vi.waitFor(() => expect(texts()).toEqual(['a', 'n']));
+    expect($('li')).toBe(first); // the row that stayed was kept, not made again
+    fire('#on', 'click');
+    await vi.waitFor(() => expect(texts()).toEqual(['none']));
+    fire('#add', 'click'); // while off, the rows don't show
+    await vi.waitFor(() => expect($('#none')).not.toBe(null));
+    expect(texts()).toEqual(['none']);
+    fire('#on', 'click');
+    await vi.waitFor(() => expect(texts()).toEqual(['a', 'n', 'n']));
+    fire(d.querySelectorAll('li')[1], 'click'); // a row's own handler, after the list came back
+    await vi.waitFor(() => expect(texts()).toEqual(['a', 'n']));
+  });
+});
+
+describe('server function calls', () => {
+  it('send the arguments and the page token, and return the value', async () => {
+    const { _$sf } = await import('../src/rt.js');
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ v: 42 }) }));
+    vi.stubGlobal('fetch', fetch);
+    document.head.innerHTML = '<meta name="goal-csrf" content="tok">';
+    expect(await _$sf('/_m/a/b', [1, 'x'])).toBe(42);
+    expect(fetch.mock.calls[0][1].headers['x-csrf-token']).toBe('tok');
+    fetch.mockImplementation(async () => ({ ok: false, status: 403 }));
+    await expect(_$sf('/_m/a/b', [])).rejects.toThrow('server function /_m/a/b failed: 403');
+    document.head.innerHTML = '';
+    vi.unstubAllGlobals();
+  });
+});

@@ -1,0 +1,16 @@
+export function Counter({ start = 0 }) {
+  var count = start;
+  const double = count * 2;
+  const tone = count % 2 ? 'odd' : 'even';
+
+  return (
+    <div class={`card ${tone}`}>
+      <button onclick={() => count--}>-</button>
+      <strong>{count}</strong>
+      <button onclick={() => count++}>+</button>
+      <p>
+        double {double}, {tone}, {if (count >= 10) <b>big</b> else if (count < 0) <i>negative</i> else 'small'}
+      </p>
+    </div>
+  );
+}

@@ -1,0 +1,142 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "goal.js",
+  "scopeName": "source.goal",
+  "comment": "goal.js is JavaScript + JSX (VS Code's built-in source.js.jsx) with three additions: `route METHOD /path/{param} { }` at the top level, `server function`, and `{if (a) X else if (b) Y else Z}` in markup. The additions are injections, so the JSX grammar does everything else.",
+  "patterns": [
+    {
+      "include": "source.js.jsx"
+    }
+  ],
+  "injections": {
+    "L:source.goal - (comment | string | meta.tag | meta.embedded)": {
+      "patterns": [
+        {
+          "include": "#route"
+        },
+        {
+          "include": "#server-function"
+        }
+      ]
+    },
+    "L:source.goal meta.embedded.expression.js.jsx - (comment | string)": {
+      "patterns": [
+        {
+          "include": "#markup-if"
+        },
+        {
+          "include": "#markup-else"
+        }
+      ]
+    }
+  },
+  "repository": {
+    "route": {
+      "comment": "route GET /users/{id} {   the body that follows is an ordinary block",
+      "match": "^\\s*(route)\\s+([A-Z]+)\\s+(/\\S*)(?=\\s*\\{)",
+      "captures": {
+        "1": {
+          "name": "storage.type.route.goal"
+        },
+        "2": {
+          "patterns": [
+            {
+              "match": "\\b(?:GET|POST|PUT|PATCH|DELETE)\\b",
+              "name": "constant.language.http-method.goal"
+            },
+            {
+              "match": ".+",
+              "name": "invalid.illegal.http-method.goal"
+            }
+          ]
+        },
+        "3": {
+          "name": "string.unquoted.route-path.goal",
+          "patterns": [
+            {
+              "match": "(\\{)([A-Za-z_][A-Za-z0-9_]*)(\\})",
+              "captures": {
+                "1": {
+                  "name": "punctuation.definition.parameter.begin.goal"
+                },
+                "2": {
+                  "name": "variable.parameter.route.goal"
+                },
+                "3": {
+                  "name": "punctuation.definition.parameter.end.goal"
+                }
+              }
+            },
+            {
+              "match": "/",
+              "name": "punctuation.separator.path.goal"
+            }
+          ]
+        }
+      }
+    },
+    "server-function": {
+      "comment": "`server function name()` and `export server function name()`; the JSX grammar takes the function from `function` on",
+      "match": "(?<![_$[:alnum:]]|\\.)(?:(export)\\s+)?(server)(?=[ \\t]+function\\b)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.export.goal"
+        },
+        "2": {
+          "name": "storage.modifier.server.goal"
+        }
+      }
+    },
+    "markup-if": {
+      "comment": "{if (cond) X ...}: X may be markup right after the condition, which the JSX grammar alone would read as `<`",
+      "begin": "(?<![_$[:alnum:]]|\\.)(if)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.conditional.goal"
+        }
+      },
+      "end": "(?=(?<![_$[:alnum:].])else\\b|[;}])",
+      "patterns": [
+        {
+          "include": "#markup-value"
+        }
+      ]
+    },
+    "markup-else": {
+      "begin": "(?<![_$[:alnum:]]|\\.)(else)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.conditional.goal"
+        }
+      },
+      "end": "(?=(?<![_$[:alnum:].])else\\b|[;}])",
+      "patterns": [
+        {
+          "include": "#markup-value"
+        }
+      ]
+    },
+    "markup-value": {
+      "patterns": [
+        {
+          "include": "source.js.jsx#comment"
+        },
+        {
+          "include": "source.js.jsx#jsx-tag-without-attributes"
+        },
+        {
+          "include": "source.js.jsx#jsx-tag"
+        },
+        {
+          "include": "source.js.jsx#control-statement"
+        },
+        {
+          "include": "source.js.jsx#decl-block"
+        },
+        {
+          "include": "source.js.jsx#expression"
+        }
+      ]
+    }
+  }
+}

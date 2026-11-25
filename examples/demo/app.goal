@@ -1,0 +1,88 @@
+import { Counter } from './components/Counter.goal';
+import { Toggle } from './components/Toggle.goal';
+import { Todo } from './components/Todo.goal';
+import { Board, listNotes } from './components/Board.goal';
+
+const notes = [];
+
+function layout(title, body) {
+  return (
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{title}</title>
+        <link rel="stylesheet" href="/style.css" />
+      </head>
+      <body>
+        <nav><a href="/">Home</a> <a href="/notes">Notes</a> <a href="/board">Board</a> <a href="/users/ada">Users</a> <a href="/about">About</a></nav>
+        {body}
+      </body>
+    </html>
+  );
+}
+
+route GET / {
+  return layout(
+    'goal.js demo',
+    <main>
+      <h1>goal.js</h1>
+      <p>Rendered on the server. Each component's code loads on its first event.</p>
+      <Counter />
+      <Counter start={10} />
+      <Toggle label="details" />
+      <Todo />
+    </main>,
+  );
+}
+
+route GET /notes {
+  return layout(
+    'Notes',
+    <main>
+      <h1>Notes</h1>
+      <form method="post" action="/notes">
+        <input name="text" maxlength="200" required placeholder="A note" />
+        <button>Add</button>
+      </form>
+      {if (notes.length) <ul>{notes.map((n) => <li>{n}</li>)}</ul> else <p>No notes yet.</p>}
+      <form method="delete" action="/notes">
+        <button>Delete all</button>
+      </form>
+    </main>,
+  );
+}
+
+route POST /notes {
+  const text = String(request.form.text ?? '').trim().slice(0, 200);
+  if (text) notes.push(text);
+  return redirect('/notes');
+}
+
+route DELETE /notes {
+  notes.length = 0;
+  return redirect('/notes');
+}
+
+route GET /board {
+  return layout(
+    'Board',
+    <main>
+      <h1>Board</h1>
+      <p>Saved on the server through server functions: no async, no fetch in the component.</p>
+      <Board initial={listNotes()} />
+    </main>,
+  );
+}
+
+route GET /api/notes {
+  return json(notes);
+}
+
+route GET /users/{name} {
+  return layout(name, <main><h1>Hello, {name}</h1><p>From the path: /users/{name}</p></main>);
+}
+
+route GET /about {
+  return layout('About', <main><h1>About</h1><p>A static page: no events, so no JavaScript at all.</p></main>);
+}

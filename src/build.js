@@ -1,0 +1,186 @@
+// Building and serving a goal.js app.
+//
+//   app/**/*.goal    ->  dist/server/**.js (components and routes) and one client chunk per
+//                        interactive component in dist/client/c/
+//   app/**/*.js      ->  dist/server/**.js as they are, for server code the .goal files import
+//   app/public/      ->  dist/public/, served as files
+//   app/goal.config.js   opt-outs of the security defaults (see src/app.js)
+
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, cpSync, rmSync, watch } from 'node:fs';
+import { join, relative, dirname, resolve, sep, posix } from 'node:path';
+import { createServer } from 'node:http';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { gzipSync } from 'node:zlib';
+import * as esbuild from 'esbuild';
+import { compile } from './compiler.js';
+import { desugar } from './syntax.js';
+import { loaderScript } from './server.js';
+import { createApp } from './app.js';
+
+export const BUDGET = 1024; // gzipped bytes per component chunk, and for the loader
+
+const SRC = dirname(fileURLToPath(import.meta.url));
+const RT = pathToFileURL(join(SRC, 'rt.js')).href;
+const KEYED = 'goal:keyed'; // the keyed list patcher, its own file: c/_/keyed.js
+const SKIP = new Set(['dist', 'node_modules', 'public']);
+
+function files(dir, root = dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    const p = join(dir, d.name);
+    if (d.isDirectory()) return SKIP.has(d.name) ? [] : files(p, root);
+    return [relative(root, p).split(sep).join('/')];
+  });
+}
+
+const write = (file, text) => {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, text);
+};
+
+const noGoal = {
+  name: 'goal',
+  setup(b) {
+    b.onResolve({ filter: /^file:/ }, (a) => ({ path: fileURLToPath(a.path) }));
+    b.onResolve({ filter: /\.goal$/ }, (a) => ({
+      errors: [{ text: `browser code can't import the .goal file ${a.path}; move shared helpers into a .js file` }],
+    }));
+  },
+};
+
+/** Client modules as esbuild entry points, each resolved from its .goal file's folder. */
+const entriesPlugin = (entries) => {
+  // Each entry sits, in name, next to its .goal file, so source maps name that file from the app folder.
+  const byPath = new Map([...entries.values()].map((e) => [join(e.dir, `${e.name}.goal.js`), e]));
+  return {
+    name: 'goal-entries',
+    setup(b) {
+      b.onResolve({ filter: /^goal-entry:/ }, (a) => ({ path: join(entries.get(a.path.slice(11)).dir, `${entries.get(a.path.slice(11)).name}.goal.js`) }));
+      b.onLoad({ filter: /\.goal\.js$/ }, (a) => ({ contents: byPath.get(a.path).code, resolveDir: byPath.get(a.path).dir, loader: 'js' }));
+    },
+  };
+};
+
+/**
+ * Compiles an app into dist/. Throws on a compile error, a duplicate route, or a chunk over budget.
+ * `dev` keeps chunks readable with source maps back to the .goal files; otherwise they are minified
+ * and the source stays on the server. `publicPath` is where the site is served from.
+ * @returns {Promise<{ version: string, chunks: { url: string, bytes: number, gzip: number }[], loader: number, routes: string[] }>}
+ */
+export async function build(app, { out = join(app, 'dist'), budget = BUDGET, dev = false, publicPath = '/' } = {}) {
+  const version = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const chunks = [];
+  const routes = [];
+  const routeFiles = [];
+  const entries = new Map(); // client modules, by output name
+  rmSync(out, { recursive: true, force: true });
+  const all = files(app);
+  // The server functions each .goal file exports, so files can import them from each other.
+  const exported = new Map();
+  for (const rel of all.filter((f) => f.endsWith('.goal')))
+    exported.set(rel, desugar(readFileSync(join(app, rel), 'utf8'), rel).serverFns.filter((f) => f.exported).map((f) => f.name));
+  for (const rel of all) {
+    if (rel === 'goal.config.js') continue;
+    if (!rel.endsWith('.goal')) {
+      if (/\.(m?js|json)$/.test(rel)) write(join(out, 'server', rel), readFileSync(join(app, rel)));
+      continue;
+    }
+    const base = rel.slice(0, -5);
+    const serverFunctions = (spec) => {
+      const target = posix.join(posix.dirname(rel), spec);
+      return exported.has(target) ? { base: target.slice(0, -5), names: exported.get(target) } : null;
+    };
+    const r = compile(readFileSync(join(app, rel), 'utf8'), { file: rel, base, rt: RT, keyed: KEYED, chunk: (n) => `${publicPath}c/${base}.${n}.js`, serverFunctions });
+    const server = r.server.replace(/((?:from|import)\s*["'])(\.{1,2}\/[^"']+?)(\.goal|\.m?js)(["'])/g, (_, a, p, ext, b) => `${a}${p}${ext === '.goal' ? '.js' : ext}?v=${version}${b}`);
+    write(join(out, 'server', base + '.js'), server);
+    if (r.routes.length || r.serverFunctions.length) routeFiles.push(base);
+    for (const f of r.serverFunctions) routes.push({ key: f.path, file: rel, label: `server function ${f.name}  POST ${f.path}` });
+    for (const route of r.routes) {
+      const key = `${route.method} ${route.path.replace(/\{\w+\}/g, '{}')}`;
+      const other = routes.find((x) => x.key === key);
+      if (other) throw new Error(`${rel}: route ${route.method} ${route.path} is already in ${other.file}`);
+      routes.push({ key, file: rel, label: `${route.method} ${route.path}` });
+    }
+    for (const c of r.clients) entries.set(`${base}.${c.name}`, { code: c.code, dir: resolve(app, dirname(rel)), name: `${posix.basename(base)}.${c.name}` });
+  }
+  // All browser code in one bundle with code splitting: each component is its own file, and code
+  // that several share (the runtime helpers, the list patcher) goes in shared files under c/_/.
+  if (entries.size) {
+    const bundle = async (minify) =>
+      (
+        await esbuild.build({
+          entryPoints: { ...Object.fromEntries([...entries.keys()].map((k) => [k, `goal-entry:${k}`])), '_/keyed': join(SRC, 'keyed.js') },
+          external: [KEYED],
+          absWorkingDir: resolve(app), // source maps name the .goal files from the app folder
+          outdir: resolve(out, 'client', 'c'),
+          chunkNames: '_/[name]-[hash]',
+          bundle: true,
+          splitting: true,
+          minify,
+          sourcemap: minify ? false : 'inline',
+          format: 'esm',
+          write: false,
+          logLevel: 'silent',
+          plugins: [entriesPlugin(entries), noGoal],
+        })
+      ).outputFiles;
+    // A chunk with a keyed list imports the patcher from its own file, next to the chunks.
+    const link = (f) => {
+      const from = posix.dirname(relative(resolve(out, 'client', 'c'), f.path).split(sep).join('/'));
+      const to = posix.relative(from, '_/keyed.js');
+      return f.text.replaceAll(`"${KEYED}"`, JSON.stringify(to.startsWith('.') ? to : './' + to));
+    };
+    const files = (await bundle(true)).map((f) => ({ path: f.path, text: link(f) })); // the budget is for what production ships
+    for (const f of dev ? (await bundle(false)).map((f) => ({ path: f.path, text: link(f) })) : files) write(f.path, f.text);
+    for (const f of files) {
+      const rel = relative(resolve(out, 'client'), f.path).split(sep).join('/');
+      chunks.push({ url: publicPath + rel, bytes: Buffer.byteLength(f.text), gzip: gzipSync(f.text).length });
+    }
+  }
+  write(
+    join(out, 'server', '_routes.js'),
+    routeFiles.map((f, i) => `import { _$routes as r${i} } from './${f}.js?v=${version}';\n`).join('') +
+      `export default [${routeFiles.map((_, i) => `...r${i}`).join(', ')}];\n`,
+  );
+  if (existsSync(join(app, 'public'))) cpSync(join(app, 'public'), join(out, 'public'), { recursive: true });
+  const loader = gzipSync(loaderScript()).length;
+  const over = [...chunks, { url: 'the loader', gzip: loader }].filter((c) => c.gzip > budget);
+  if (over.length) throw new Error(over.map((c) => `${c.url} is ${c.gzip} B gzipped, over the ${budget} B budget`).join('\n'));
+  return { version, chunks, loader, routes: routes.map((r) => r.label) };
+}
+
+/** Serves a built app. `dev` shows error details; `version` names the build to load. */
+export async function serve(app, { out = join(app, 'dist'), port = 3000, dev = false, version = () => '', log = console.error } = {}) {
+  const configFile = join(app, 'goal.config.js');
+  const config = existsSync(configFile) ? (await import(pathToFileURL(configFile).href)).default : {};
+  const routesFile = pathToFileURL(join(out, 'server', '_routes.js')).href;
+  const server = createServer(async (req, res) => {
+    const routes = (await import(`${routesFile}?v=${version()}`)).default;
+    return createApp(routes, { dev, config, log, staticDirs: [join(out, 'client'), join(out, 'public')] })(req, res);
+  });
+  return new Promise((ok) => server.listen(port, () => ok(server)));
+}
+
+/** Builds, serves with error details, and builds again when a source file changes. */
+export async function dev(app, { port = 3000, log = console.log } = {}) {
+  let version = '';
+  const rebuild = async () => {
+    try {
+      const r = await build(app, { dev: true });
+      version = r.version;
+      log(`built: ${r.routes.length} route(s), ${r.chunks.length} chunk(s)`);
+    } catch (e) {
+      log(e.message);
+    }
+  };
+  await rebuild();
+  process.setSourceMapsEnabled(true); // stack traces point at the .goal files
+  const server = await serve(app, { port, dev: true, version: () => version, log });
+  let timer;
+  const watcher = watch(app, { recursive: true }, (_, f) => {
+    if (!/\.(goal|m?js|json|css)$/.test(String(f)) || String(f).startsWith('dist')) return;
+    clearTimeout(timer);
+    timer = setTimeout(rebuild, 30);
+  });
+  server.on('close', () => watcher.close());
+  return server;
+}

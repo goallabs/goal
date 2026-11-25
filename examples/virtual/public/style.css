@@ -1,0 +1,69 @@
+body {
+  font: 14px/1.4 system-ui, sans-serif;
+  margin: 24px;
+  color: #1d2433;
+  background: #fff;
+}
+h1 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+.bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 0 0 8px;
+}
+#range {
+  color: #5b6475;
+  font-variant-numeric: tabular-nums;
+}
+/* The heights here are ROW and VIEW in VirtualList.goal. */
+.viewport {
+  height: 640px;
+  max-width: 760px;
+  overflow-y: auto;
+  border: 1px solid #d6dbe4;
+  contain: content;
+  overflow-anchor: none; /* the spacer above the rows changes height: don't let the browser move the scroll for it */
+}
+.row {
+  height: 32px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 64px 160px 1fr 48px;
+  gap: 8px;
+  align-items: center;
+  padding: 0 8px;
+  border-bottom: 1px solid #eef0f4;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.row.on {
+  background: #e8f0ff;
+}
+.id,
+.value {
+  font-variant-numeric: tabular-nums;
+  color: #5b6475;
+}
+.value {
+  text-align: right;
+}
+.extra i {
+  font-style: normal;
+  background: #eef0f4;
+  border-radius: 3px;
+  padding: 1px 6px;
+  margin-right: 4px;
+}
+.hot {
+  color: #b42318;
+}
+.cold {
+  color: #175cd3;
+}
+meter {
+  width: 120px;
+}
