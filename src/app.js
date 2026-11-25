@@ -165,6 +165,16 @@ function match(routes, method, segs) {
   return allow.size ? { allow: [...allow] } : null;
 }
 
+/** The state a page kept for each component, sent with a live update; anything else counts as none. */
+function keptState(header) {
+  try {
+    const v = JSON.parse(header);
+    return v && typeof v === 'object' ? v : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * A request handler for node:http.
  * @param {{ method: string, path: string, handler: Function }[]} routes
@@ -230,10 +240,11 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
       if (m.allow) return send(405, HTML, errorPage('Method not allowed'), { allow: m.allow.join(', ') });
 
       const ctx = _$ctx(token);
+      if (dev && req.headers['x-goal-hmr']) ctx.hmr = keptState(req.headers['x-goal-hmr']); // goal dev: a live update (see hmr.js)
       const request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, json: body };
       const cookie = (name, value, opts) => setCookies.push(serializeCookie(name, value, opts));
       const out = await m.route.handler(request, { ctx, redirect, json, notFound, cookie });
-      if (out instanceof Html) return send(200, HTML, page(out.s, [...ctx.ev], nonce, token));
+      if (out instanceof Html) return send(200, HTML, page(out.s, [...ctx.ev], nonce, token, dev));
       if (out === undefined) return send(204);
       if (out?.[REPLY]) return send(out.status, out.type, out.body, out.headers);
       throw new Error('a route returns markup, redirect(), json(), notFound() or nothing');

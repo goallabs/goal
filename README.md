@@ -1,3 +1,5 @@
+<img src="https://goallabs.github.io/goal/assets/goal.svg" alt="" width="72" height="72">
+
 # goal.js
 
 A compiled JavaScript framework where **`var` is state** and **`let`/`const` are computed**. Pages are
@@ -37,7 +39,7 @@ export function Counter({ start }) {
 
 ```bash
 npm install goaljs
-npx goal dev .        # build the app in this folder, serve it on http://localhost:3000, rebuild on save
+npx goal dev .        # build the app in this folder, serve it on http://localhost:3000, update live on save
 ```
 
 [Getting started](https://goallabs.github.io/goal/getting-started) walks through a first app. The docs
@@ -52,7 +54,7 @@ also cover [routes](https://goallabs.github.io/goal/routes),
 
 ```bash
 npm install
-npm run demo            # builds examples/demo, serves it on http://localhost:3000, rebuilds on save
+npm run demo            # builds examples/demo, serves it on http://localhost:3000, updates live on save
 npm test                # the tests, with 100% coverage of src/ required
 npm run bench:virtual   # a 100,000-row virtual list in headless Chrome: speed and memory
 ```

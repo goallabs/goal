@@ -12,24 +12,34 @@ export function render(Component, props = {}, ctx = _$ctx()) {
   return { html, events: [...ctx.ev] };
 }
 
+const HERE = dirname(fileURLToPath(import.meta.url));
 const EVENTS = '"__GOAL_EVENTS__"';
 let loaderCode;
 /** The loader, minified, starting itself; the page puts its events where EVENTS is. */
 export function loaderScript() {
-  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'loader.js'), 'utf8');
+  const src = readFileSync(join(HERE, 'loader.js'), 'utf8');
   loaderCode ??= transformSync(`${src.replace('export function boot', 'function boot')}\nboot(document, ${EVENTS});`, { format: 'iife', minify: true }).code.trim();
   return loaderCode;
+}
+
+let hmrCode;
+/** goal dev's live updates in the page (hmr.js), minified, starting itself. */
+export function hmrScript() {
+  hmrCode ??= transformSync(`${readFileSync(join(HERE, 'hmr.js'), 'utf8').replace('export function hmr', 'function hmr')}\nhmr(document, window);`, { format: 'iife', minify: true }).code.trim();
+  return hmrCode;
 }
 
 /**
  * A whole HTML document. Markup that starts with <html> is the document itself; anything else goes
  * in a plain one. The loader goes in only when there are events, with the request's CSP nonce, and
- * the CSRF token that server function calls send.
+ * the CSRF token that server function calls send. In goal dev (`dev`), every page also gets the
+ * live updates, and the events it listens for, which an update compares.
  */
-export function page(html, events, nonce, token = '') {
-  const script = events.length
+export function page(html, events, nonce, token = '', dev = false) {
+  let script = events.length
     ? `<meta name="goal-csrf" content="${_$e(token)}"><script type="module" nonce="${nonce}">${loaderScript().replace(EVENTS, JSON.stringify(events))}</script>`
     : '';
+  if (dev) script += `<meta name="goal-events" content="${_$e(JSON.stringify(events))}"><script type="module" nonce="${nonce}">${hmrScript()}</script>`;
   if (/^<html[\s>]/.test(html)) {
     const i = html.lastIndexOf('</body>');
     return '<!doctype html>' + (i < 0 ? html + script : html.slice(0, i) + script + html.slice(i));

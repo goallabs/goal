@@ -76,18 +76,19 @@ function emit(node) {
 /**
  * Compiles one .goal file.
  * @param {string} source
- * @param {{ file?: string, base?: string, rt?: string, list?: string, chunk?: (name: string) => string,
- *   serverFunctions?: (specifier: string) => { base: string, names: string[] } | null }} [opts]
+ * @param {{ file?: string, base?: string, rt?: string, keyed?: string, chunk?: (name: string) => string,
+ *   serverFunctions?: (specifier: string) => { base: string, names: string[] } | null, dev?: boolean }} [opts]
  *   file: the name in errors and source maps; base: the file's path without .goal, which names its
  *   server functions' URLs (/_m/<base>/<name>); rt and keyed: where compiled code imports the helpers
  *   and the keyed list patcher from;
  *   chunk: the URL the browser loads a component's client module from; serverFunctions: the server
- *   functions another .goal file exports, for imports of it.
+ *   functions another .goal file exports, for imports of it; dev: for goal dev, where a component
+ *   rendered for a live update starts from the state the page kept (see hmr.js).
  */
 export function compile(source, opts = {}) {
   const file = opts.file ?? 'input.goal';
   const base = opts.base ?? file.replace(/\.goal$/, '');
-  const o = { file, rt: opts.rt ?? 'goaljs/rt', keyed: opts.keyed ?? 'goaljs/keyed', chunk: opts.chunk ?? ((n) => `/${n}.js`), sfns: new Map() };
+  const o = { file, rt: opts.rt ?? 'goaljs/rt', keyed: opts.keyed ?? 'goaljs/keyed', chunk: opts.chunk ?? ((n) => `/${n}.js`), dev: !!opts.dev, sfns: new Map() };
   const d = desugar(source, file);
   SRC = { source, file };
   const ast = parse(d.code, { sourceType: 'module', plugins: ['jsx'] });
@@ -323,6 +324,7 @@ function component(fn, program, mode, o) {
     const pre = [];
     if (param) pre.push(t.variableDeclaration('let', [t.variableDeclarator(patternOf(param), pId)]));
     pre.push(t.variableDeclaration('const', [t.variableDeclarator(cx.iId, t.updateExpression('++', t.memberExpression(cx.cId, t.identifier('i'))))]));
+    if (o.dev && interactive && state.length) pre.push(keptState(fn, cx, o.chunk(name).split('?')[0], state));
     if (events.length) pre.push(t.expressionStatement(t.callExpression(t.memberExpression(cx.cId, t.identifier('e')), [t.valueToNode(events)])));
     if (cx.dyn) {
       // The server only numbers the handlers made while rendering; the browser keeps them.
@@ -340,6 +342,29 @@ function component(fn, program, mode, o) {
 }
 
 const patternOf = (param) => (t.isAssignmentPattern(param) ? param.left : param);
+
+/**
+ * goal dev: a live update renders the page again with the state each component had in the browser
+ * (ctx.hmr, by instance number). When this instance is the same component, its vars start from that
+ * state instead of their initial values; a var it didn't have starts as written.
+ */
+function keptState(fn, cx, chunk, state) {
+  const kept = t.identifier('_$o');
+  const at = t.memberExpression(t.memberExpression(cx.cId, t.identifier('hmr')), cx.iId, true);
+  for (const name of state) {
+    const d = fn.scope.getBinding(name).path.node;
+    d.init = t.conditionalExpression(
+      t.logicalExpression('&&', kept, t.binaryExpression('in', t.stringLiteral(name), kept)),
+      t.memberExpression(kept, t.identifier(name)),
+      d.init ?? t.identifier('undefined'),
+    );
+  }
+  // _$c.hmr?.[_$i]?.c === chunk ? _$c.hmr[_$i].s : null
+  const cOf = t.optionalMemberExpression(t.optionalMemberExpression(t.memberExpression(cx.cId, t.identifier('hmr')), cx.iId, true, true), t.identifier('c'), false, true);
+  return t.variableDeclaration('const', [
+    t.variableDeclarator(kept, t.conditionalExpression(t.binaryExpression('===', cOf, t.stringLiteral(chunk)), t.memberExpression(at, t.identifier('s')), t.nullLiteral())),
+  ]);
+}
 
 const ROOT = Symbol('root attributes');
 

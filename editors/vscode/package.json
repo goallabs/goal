@@ -2,6 +2,7 @@
   "name": "goal-vscode",
   "displayName": "goal.js",
   "description": "goal.js (.goal) in VS Code: highlighting for routes, server functions and {if} in markup, and the compiler's errors as you type.",
+  "icon": "icons/goal-128.png",
   "version": "0.1.0",
   "publisher": "goaljs",
   "license": "MIT",

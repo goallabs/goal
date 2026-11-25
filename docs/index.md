@@ -3,6 +3,8 @@ title: Home
 nav_order: 1
 ---
 
+<img src="assets/goal.svg" alt="" width="72" height="72">
+
 # goal.js
 
 A compiled JavaScript framework where **`var` is state** and **`let`/`const` are computed**.

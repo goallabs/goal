@@ -37,6 +37,7 @@ const routes = [
       throw new Error('boom');
     },
   },
+  { method: 'GET', path: '/kept', handler: (r, x) => x.json(x.ctx.hmr ?? null) },
   {
     method: 'GET',
     path: '/cookie',
@@ -178,6 +179,19 @@ describe('routes', () => {
     expect(res.headers.get('content-type')).toBe('text/plain; charset=utf-8');
     expect(await res.text()).toMatch(/^Error: boom\n {4}at /);
     expect(log).toEqual(['boom']);
+  });
+
+  it('pass the state a page kept to the render, and add the live updates to pages, in dev only', async () => {
+    const dev = await start({ dev: true });
+    const kept = (base, header) => fetch(base + '/kept', { headers: header === undefined ? {} : { 'x-goal-hmr': header } }).then((r) => r.json());
+    expect(await kept(dev, '{"0":{"c":"/c/A.js","s":{"n":2}}}')).toEqual({ 0: { c: '/c/A.js', s: { n: 2 } } });
+    expect(await kept(dev, 'not json')).toEqual({});
+    expect(await kept(dev, '1')).toEqual({});
+    expect(await kept(dev, 'null')).toEqual({});
+    expect(await kept(dev)).toBe(null);
+    expect(await kept(url, '{"0":{}}')).toBe(null); // not in dev
+    expect(await (await fetch(dev + '/doc')).text()).toContain('<meta name="goal-events" content="[&quot;click&quot;]"><script type="module" nonce="');
+    expect(await (await fetch(url + '/doc')).text()).not.toContain('goal-events');
   });
 
   it('logs to the console by default', async () => {

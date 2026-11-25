@@ -12,12 +12,12 @@ export const TMP = join(HERE, '.tmp');
 
 let n = 0;
 
-/** compile() with the helpers imported from src/rt.js and chunks at /c/<Name>.js */
-export const build = (src, file = 'App.goal') => compile(src, { file, rt: RT, chunk: (name) => `/c/${name}.js` });
+/** compile() with the helpers imported from src/rt.js and chunks at /c/<Name>.js, and other options. */
+export const build = (src, file = 'App.goal', opts = {}) => compile(src, { file, rt: RT, chunk: (name) => `/c/${name}.js`, ...opts });
 
 /** Compiles, writes the server module and client chunks, and imports the server module. */
-export async function load(src) {
-  const r = build(src);
+export async function load(src, opts) {
+  const r = build(src, undefined, opts);
   const dir = join(TMP, `m${process.pid}-${n++}`);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'server.mjs'), r.server);

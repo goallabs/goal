@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, page, loaderScript } from '../src/server.js';
+import { render, page, loaderScript, hmrScript } from '../src/server.js';
 import { _$ctx } from '../src/rt.js';
 
 describe('server', () => {
@@ -24,5 +24,13 @@ describe('server', () => {
     expect(page('<p></p>', ['click'], 'n', 'a"b')).toContain('<meta name="goal-csrf" content="a&quot;b"><script');
     expect(loaderScript()).toBe(loaderScript());
     expect(loaderScript()).toMatch(/^\(\(\)=>\{.*\(document,"__GOAL_EVENTS__"\);\}\)\(\);$/s);
+  });
+
+  it('adds the live updates to every page in goal dev, with the events the page listens for', () => {
+    const live = (events) => `<meta name="goal-events" content="${events}"><script type="module" nonce="n">${hmrScript()}</script>`;
+    expect(page('<p>x</p>', ['click'], 'n', '', true)).toContain(`</script>${live('[&quot;click&quot;]')}</body>`);
+    expect(page('<p>x</p>', [], 'n', '', true)).toContain(`<body><p>x</p>${live('[]')}</body>`);
+    expect(hmrScript()).toBe(hmrScript());
+    expect(hmrScript()).toMatch(/^\(\(\)=>\{.*\(document,window\);\}\)\(\);$/s);
   });
 });

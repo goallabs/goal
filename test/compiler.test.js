@@ -321,6 +321,33 @@ describe('handlers inside lists', () => {
   });
 });
 
+describe('goal dev', () => {
+  const SRC = `
+    export function C({ start }) {
+      var n = start;
+      var m;
+      return <b onclick={() => n++}>{n}{m}</b>;
+    }
+    export function H() { return <i onclick={() => alert(1)}>h</i>; }
+    export function S() { return <p>s</p>; }`;
+
+  it('start a component from the state its page kept, when it is the same component', async () => {
+    const { server } = await load(SRC, { dev: true });
+    const html = (hmr) => {
+      const ctx = _$ctx();
+      ctx.hmr = hmr;
+      return render(server.C, { start: 1 }, ctx).html;
+    };
+    expect(html(undefined)).toContain('m-s="{&quot;n&quot;:1}"><!--0.0-->1<!--/-->');
+    expect(html({ 0: { c: '/c/C.js', s: { n: 7, m: 'kept', gone: 1 } } })).toContain('m-s="{&quot;n&quot;:7,&quot;m&quot;:&quot;kept&quot;}"><!--0.0-->7<!--/--><!--0.1-->kept<!--/-->');
+    expect(html({ 0: { c: '/c/C.js', s: {} } })).toContain('<!--0.0-->1<!--/-->'); // a var the page didn't have starts as written
+    expect(html({ 0: { c: '/c/Other.js', s: { n: 7 } } })).toContain('<!--0.0-->1<!--/-->'); // another component's state
+    expect(render(server.S).html).toBe('<p>s</p>');
+    expect(render(server.H).html).toContain('>h</i>');
+    expect(build(SRC).server).not.toContain('_$o');
+  });
+});
+
 describe('keyed lists', () => {
   const TABLE = `
     export function T({ base }) {

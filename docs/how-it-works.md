@@ -30,6 +30,21 @@ components share go in a chunk of their own, and the keyed-list code in another,
 components with a keyed list. In the demo app, the component chunks are 270 to 550 B,
 the shared helpers 617 B, the keyed-list code 1015 B, and the loader 947 B.
 
+## Live updates in goal dev
+
+`goal dev` builds again when a file changes and tells the open pages what changed, over a stream at
+`/_goal/hmr`:
+
+- **A stylesheet:** the page loads it again in place.
+- **Code**, a component's or the server's: the page asks the server for itself again, sending the
+  state each component has now. The server renders the page with that state, and the new body takes
+  the old one's place, keeping the scroll and the focus. The next event runs the new code, because a
+  dev chunk's URL names its build.
+- **A compile error:** it shows over the page until a build works again.
+
+A page reloads instead when the new code listens for an event type the page doesn't yet, or when the
+state is too big to send. None of this is in `goal build`.
+
 ## Debugging
 
 The browser runs the component as you wrote it: the same top level (`var count = …`, your `const`s,

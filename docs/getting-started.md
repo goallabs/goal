@@ -56,10 +56,14 @@ npx goal dev .
 Open <http://localhost:3000> and click the button. The page was rendered on the server; the
 component's code loaded when you pointed at the button, and the click updated only the number.
 
+Now change `Counter.goal`, say the button's text, and save. The page updates without reloading, and
+the count stays where it was. A stylesheet change applies in place, and a compile error shows over
+the page, with the file, line and column, until you fix it.
+
 ## Commands
 
 ```bash
-goal dev <app>      # build, serve with error details, rebuild when a file changes
+goal dev <app>      # build, serve with error details, update open pages when a file changes
 goal build <app>    # compile into <app>/dist; prints the routes and each chunk's size
 goal start <app>    # serve a built app (--port 3000)
 ```

@@ -88,7 +88,9 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
       const target = posix.join(posix.dirname(rel), spec);
       return exported.has(target) ? { base: target.slice(0, -5), names: exported.get(target) } : null;
     };
-    const r = compile(readFileSync(join(app, rel), 'utf8'), { file: rel, base, rt: RT, keyed: KEYED, chunk: (n) => `${publicPath}c/${base}.${n}.js`, serverFunctions });
+    // In dev a chunk's URL names the build, so a page updated live loads the new code.
+    const chunk = (n) => `${publicPath}c/${base}.${n}.js${dev ? `?v=${version}` : ''}`;
+    const r = compile(readFileSync(join(app, rel), 'utf8'), { file: rel, base, rt: RT, keyed: KEYED, chunk, serverFunctions, dev });
     const server = r.server.replace(/((?:from|import)\s*["'])(\.{1,2}\/[^"']+?)(\.goal|\.m?js)(["'])/g, (_, a, p, ext, b) => `${a}${p}${ext === '.goal' ? '.js' : ext}?v=${version}${b}`);
     write(join(out, 'server', base + '.js'), server);
     if (r.routes.length || r.serverFunctions.length) routeFiles.push(base);
@@ -144,39 +146,67 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
   return { version, chunks, loader: gzipSync(loaderScript()).length, routes: routes.map((r) => r.label) };
 }
 
-/** Serves a built app. `dev` shows error details; `version` names the build to load. */
-export async function serve(app, { out = join(app, 'dist'), port = 3000, dev = false, version = () => '', log = console.error } = {}) {
+/**
+ * Serves a built app. `dev` shows error details; `version` names the build to load; `hmr`, the set
+ * of pages listening at /_goal/hmr for live updates (goal dev).
+ */
+export async function serve(app, { out = join(app, 'dist'), port = 3000, dev = false, version = () => '', log = console.error, hmr } = {}) {
   const configFile = join(app, 'goal.config.js');
   const config = existsSync(configFile) ? (await import(pathToFileURL(configFile).href)).default : {};
   const routesFile = pathToFileURL(join(out, 'server', '_routes.js')).href;
   const server = createServer(async (req, res) => {
+    if (hmr && req.url === '/_goal/hmr') {
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
+      res.write(': goal dev\n\n');
+      hmr.add(res);
+      req.on('close', () => hmr.delete(res));
+      return;
+    }
     const routes = (await import(`${routesFile}?v=${version()}`)).default;
     return createApp(routes, { dev, config, log, staticDirs: [join(out, 'client'), join(out, 'public')] })(req, res);
   });
   return new Promise((ok) => server.listen(port, () => ok(server)));
 }
 
-/** Builds, serves with error details, and builds again when a source file changes. */
+/**
+ * Builds, serves with error details, and builds again when a source file changes. Open pages update
+ * live (see hmr.js): after a build they're told that a stylesheet changed, that code did, or what the
+ * compile error is.
+ */
 export async function dev(app, { port = 3000, log = console.log } = {}) {
   let version = '';
-  const rebuild = async () => {
+  const pages = new Set();
+  const tell = (m) => {
+    for (const res of pages) res.write(`data: ${JSON.stringify(m)}\n\n`);
+  };
+  const rebuild = async (changed = []) => {
     try {
       const r = await build(app, { dev: true });
       version = r.version;
       log(`built: ${r.routes.length} route(s), ${r.chunks.length} chunk(s)`);
+      tell({ type: changed.length && changed.every((f) => f.endsWith('.css')) ? 'css' : 'update', version });
     } catch (e) {
       log(e.message);
+      tell({ type: 'error', message: e.message });
     }
   };
   await rebuild();
   process.setSourceMapsEnabled(true); // stack traces point at the .goal files
-  const server = await serve(app, { port, dev: true, version: () => version, log });
+  const server = await serve(app, { port, dev: true, version: () => version, log, hmr: pages });
   let timer;
+  let changed = [];
   const watcher = watch(app, { recursive: true }, (_, f) => {
     if (!/\.(goal|m?js|json|css)$/.test(String(f)) || String(f).startsWith('dist')) return;
+    changed.push(String(f));
     clearTimeout(timer);
-    timer = setTimeout(rebuild, 30);
+    timer = setTimeout(() => rebuild(changed.splice(0)), 30);
   });
-  server.on('close', () => watcher.close());
+  // The pages' streams stay open, so close them for the server to close.
+  const close = server.close.bind(server);
+  server.close = (done) => {
+    watcher.close();
+    for (const res of pages) res.end();
+    return close(done);
+  };
   return server;
 }

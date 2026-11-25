@@ -110,7 +110,7 @@ describe('build', () => {
     const map = JSON.parse(Buffer.from(code.split('base64,')[1], 'base64').toString());
     expect(map.sources.at(-1)).toBe('../../../../ui/C.goal'); // from the chunk's place in dist/client/c/ui
     expect(map.sourcesContent.at(-1)).toBe(COUNTER);
-    expect(readFileSync(join(dir, 'dist/server/ui/C.js'), 'utf8')).toContain('m-c="/app/c/ui/C.C.js"');
+    expect(readFileSync(join(dir, 'dist/server/ui/C.js'), 'utf8')).toContain(`m-c="/app/c/ui/C.C.js?v=${r.version}"`); // a live update loads the new build
   });
 
   it("lets .goal files import each other's server functions", async () => {
@@ -189,6 +189,32 @@ describe('dev', () => {
   it('logs to the console by default', async () => {
     const dir = app({ 'app.goal': 'route GET / { return <p/>; }' });
     listen(await dev(dir, { port: 0 }));
+  });
+
+  it('tells the open pages what each build changed: a stylesheet, code, or the compile error', async () => {
+    const dir = app({ 'app.goal': 'route GET / { return <p>one</p>; }', 'public/style.css': 'p {}' });
+    const url = listen(await dev(dir, { port: 0, log: () => {} }));
+    expect(await (await fetch(url)).text()).toContain('<meta name="goal-events" content="[]"><script type="module" nonce=');
+    const res = await fetch(`${url}/_goal/hmr`);
+    expect(res.headers.get('content-type')).toBe('text/event-stream');
+    const reader = res.body.getReader();
+    let text = '';
+    const message = async () => {
+      for (;;) {
+        const m = /data: (.*)\n\n/.exec(text);
+        if (m) {
+          text = text.slice(m.index + m[0].length);
+          return JSON.parse(m[1]);
+        }
+        text += new TextDecoder().decode((await reader.read()).value);
+      }
+    };
+    writeFileSync(join(dir, 'public/style.css'), 'p { color: red }');
+    expect(await message()).toMatchObject({ type: 'css' });
+    writeFileSync(join(dir, 'app.goal'), 'route GET / { return <p>two</p>; }');
+    expect(await message()).toMatchObject({ type: 'update' });
+    writeFileSync(join(dir, 'app.goal'), 'route GET / { var a = 1; return <p/>; }');
+    expect(await message()).toMatchObject({ type: 'error', message: expect.stringContaining('state (var) belongs in a component') });
   });
 });
 
