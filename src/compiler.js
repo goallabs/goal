@@ -32,6 +32,9 @@ import { generate } from '@babel/generator';
 import * as t from '@babel/types';
 import { desugar, errorAt, GoalError } from './syntax.js';
 import { URL_ATTRS, _$u } from './rt.js';
+import { check } from './types.js';
+
+export { exportsOf } from './types.js'; // what a .goal file gives a #strict file importing it: for the editor too
 
 export { GoalError };
 
@@ -77,7 +80,8 @@ function emit(node) {
  * Compiles one .goal file.
  * @param {string} source
  * @param {{ file?: string, base?: string, rt?: string, keyed?: string, chunk?: (name: string) => string,
- *   serverFunctions?: (specifier: string) => { base: string, names: string[] } | null, dev?: boolean }} [opts]
+ *   serverFunctions?: (specifier: string) => { base: string, names: string[] } | null, dev?: boolean,
+ *   typesOf?: (specifier: string) => object | null }} [opts]
  *   file: the name in errors and source maps; base: the file's path without .goal, which names its
  *   server functions' URLs (/_m/<base>/<name>); rt and keyed: where compiled code imports the helpers
  *   and the keyed list patcher from;
@@ -93,6 +97,7 @@ export function compile(source, opts = {}) {
   SRC = { source, file };
   const ast = parse(d.code, { sourceType: 'module', plugins: ['jsx'] });
   relocate(ast, source, d.map, file.split('/').at(-1)); // source maps name the file next to the compiled one
+  const typed = d.strict ? check(ast, d, opts.typesOf, fail) : null; // types: what other .goal files export comes from typesOf
 
   // Server functions this file can call: its own, and the ones it imports from other .goal files.
   for (const f of d.serverFns) o.sfns.set(f.name, `/_m/${base}/${f.name}`);
@@ -126,14 +131,14 @@ export function compile(source, opts = {}) {
           t.variableDeclarator(
             t.identifier('_$routes'),
             t.arrayExpression([
-              ...d.routes.map((r) => routeEntry(r.method, r.path, t.identifier(r.name))),
+              ...d.routes.map((r) => routeEntry(r.method, r.path, t.identifier(r.name), r.types)),
               ...endpoints.map((f) =>
                 routeEntry(
                   'POST',
                   f.path,
                   t.arrowFunctionExpression(
                     [t.identifier('r'), t.identifier('x')],
-                    t.callExpression(t.identifier('_$call'), [t.identifier(f.name), t.identifier('r'), t.identifier('x')]),
+                    t.callExpression(t.identifier('_$call'), [t.identifier(f.name), t.identifier('r'), t.identifier('x'), ...(typed ? [t.valueToNode(typed.params.get(f.name))] : [])]),
                   ),
                 ),
               ),
@@ -152,11 +157,12 @@ export function compile(source, opts = {}) {
   };
 }
 
-const routeEntry = (method, path, handler) =>
+const routeEntry = (method, path, handler, types = {}) =>
   t.objectExpression([
     t.objectProperty(t.identifier('method'), t.stringLiteral(method)),
     t.objectProperty(t.identifier('path'), t.stringLiteral(path)),
     t.objectProperty(t.identifier('handler'), handler),
+    ...(Object.keys(types).length ? [t.objectProperty(t.identifier('types'), t.valueToNode(types))] : []), // typed path parameters
   ]);
 
 // ---------------------------------------------------------------------------------------------

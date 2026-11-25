@@ -66,6 +66,7 @@ the page, with the file, line and column, until you fix it.
 goal dev <app>      # build, serve with error details, update open pages when a file changes
 goal build <app>    # compile into <app>/dist; prints the routes and each chunk's size
 goal start <app>    # serve a built app (--port 3000)
+goal check <app>    # check every file, types too, and list the errors
 ```
 
 ## What goes in an app

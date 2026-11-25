@@ -33,8 +33,8 @@ describe('routes', () => {
     const d = desugar('route GET / {\n  return 1;\n}\nroute DELETE /users/{id}/posts/{post} { await x; }\nroute = 2;', 'a.goal');
     expect(d.code).toBe('async function _$r0(request, _$x) {\n  return 1;\n}\nasync function _$r1(request, _$x) { await x; }\nroute = 2;');
     expect(d.routes).toEqual([
-      { method: 'GET', path: '/', params: [], name: '_$r0' },
-      { method: 'DELETE', path: '/users/{id}/posts/{post}', params: ['id', 'post'], name: '_$r1' },
+      { method: 'GET', path: '/', params: [], types: {}, name: '_$r0' },
+      { method: 'DELETE', path: '/users/{id}/posts/{post}', params: ['id', 'post'], types: {}, name: '_$r1' },
     ]);
   });
 

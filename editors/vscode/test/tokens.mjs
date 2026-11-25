@@ -1,5 +1,5 @@
 // Tokenizes .goal text the way VS Code does: vscode-textmate with oniguruma, our grammar, and the
-// JavaScript React grammar VS Code ships with (from the installed app, or GOAL_JSX_GRAMMAR).
+// TypeScript React grammar VS Code ships with (from the installed app, or GOAL_TSX_GRAMMAR).
 
 import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -12,13 +12,13 @@ const require = createRequire(import.meta.url);
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 const CANDIDATES = [
-  process.env.GOAL_JSX_GRAMMAR,
-  '/Applications/Visual Studio Code.app/Contents/Resources/app/extensions/javascript/syntaxes/JavaScriptReact.tmLanguage.json',
-  '/usr/share/code/resources/app/extensions/javascript/syntaxes/JavaScriptReact.tmLanguage.json',
+  process.env.GOAL_TSX_GRAMMAR,
+  '/Applications/Visual Studio Code.app/Contents/Resources/app/extensions/typescript-basics/syntaxes/TypeScriptReact.tmLanguage.json',
+  '/usr/share/code/resources/app/extensions/typescript-basics/syntaxes/TypeScriptReact.tmLanguage.json',
 ];
 
-/** Where VS Code's JavaScript React grammar is, or undefined. */
-export const JSX_GRAMMAR = CANDIDATES.find((p) => p && existsSync(p));
+/** Where VS Code's TypeScript React grammar is, or undefined. */
+export const TSX_GRAMMAR = CANDIDATES.find((p) => p && existsSync(p));
 
 let registry;
 function load() {
@@ -29,7 +29,7 @@ function load() {
   }));
   const files = {
     'source.goal': join(HERE, '..', 'syntaxes', 'goal.tmLanguage.json'),
-    'source.js.jsx': JSX_GRAMMAR,
+    'source.tsx': TSX_GRAMMAR,
   };
   return new vsctm.Registry({
     onigLib: lib,

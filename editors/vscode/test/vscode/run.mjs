@@ -29,6 +29,7 @@ mkdirSync(join(tmp, 'ws/app/node_modules'), { recursive: true });
 symlinkSync(ROOT, join(tmp, 'ws/app/node_modules/goaljs'), 'dir');
 // no goaljs: the bundled copy checks it
 write('ws/plain/D.goal', BAD);
+write('ws/plain/S.goal', '#strict\ntype Note = { done: boolean };\n\nroute GET /notes/{id: number} {\n  return <p>{id}</p>;\n}\n');
 // a goaljs whose compiler the suite rewrites, to see the next check use the new one
 write('ws/fake/node_modules/goaljs/package.json', JSON.stringify({ name: 'goaljs', type: 'module', exports: { './compiler': './compiler.js' } }));
 write('ws/fake/E.goal', 'route GET / {\n  return <p>hi</p>;\n}\n');

@@ -1,11 +1,20 @@
 {
   "name": "goal-vscode",
   "displayName": "goal.js",
-  "description": "goal.js (.goal) in VS Code: highlighting for routes, server functions and {if} in markup, and the compiler's errors as you type.",
+  "description": "goal.js (.goal) in VS Code: highlighting for routes, server functions, {if} in markup and #strict types, and the compiler's errors as you type.",
   "icon": "icons/goal-128.png",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "publisher": "goaljs",
   "license": "MIT",
+  "homepage": "https://goallabs.github.io/goal/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/goallabs/goal.git",
+    "directory": "editors/vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/goallabs/goal/issues"
+  },
   "private": true,
   "engines": {
     "vscode": "^1.90.0"
@@ -57,10 +66,10 @@
         "scopeName": "source.goal",
         "path": "./syntaxes/goal.tmLanguage.json",
         "embeddedLanguages": {
-          "meta.tag.js": "jsx-tags",
-          "meta.tag.without-attributes.js": "jsx-tags",
-          "meta.tag.attributes.js.jsx": "goal",
-          "meta.embedded.expression.js": "goal"
+          "meta.tag.tsx": "jsx-tags",
+          "meta.tag.without-attributes.tsx": "jsx-tags",
+          "meta.tag.attributes.tsx": "goal",
+          "meta.embedded.expression.tsx": "goal"
         },
         "tokenTypes": {
           "punctuation.definition.template-expression": "other",
@@ -80,10 +89,10 @@
   },
   "scripts": {
     "bundle": "node scripts/bundle.mjs",
-    "vscode:prepublish": "node scripts/bundle.mjs",
+    "vscode:prepublish": "node scripts/bundle.mjs --ref HEAD",
     "test": "node scripts/bundle.mjs && node --test test/*.test.mjs",
     "test:vscode": "node scripts/bundle.mjs && node test/vscode/run.mjs",
-    "package": "vsce package --allow-missing-repository --skip-license --out goal.vsix"
+    "package": "vsce package --out goal.vsix"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.6.0",

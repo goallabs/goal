@@ -153,12 +153,20 @@ function table(routes) {
     .sort((a, b) => a.n - b.n || a.i - b.i);
 }
 
+/** A path parameter: text, or a number for one typed {id: number}, which matches only a number. */
+function param(r, name, seg, params) {
+  if (r.types?.[name] !== 'number') return !!(params[name] = seg);
+  if (!/^-?\d+(\.\d+)?$/.test(seg)) return false;
+  params[name] = Number(seg);
+  return true;
+}
+
 function match(routes, method, segs) {
   const allow = new Set();
   for (const r of routes) {
     if (r.segs.length !== segs.length) continue;
     const params = {};
-    if (!r.segs.every((s, i) => (s[0] === '{' ? ((params[s.slice(1, -1)] = segs[i]), true) : s === segs[i]))) continue;
+    if (!r.segs.every((s, i) => (s[0] === '{' ? param(r, s.slice(1, -1), segs[i], params) : s === segs[i]))) continue;
     if (r.method === method) return { route: r, params };
     allow.add(r.method);
   }

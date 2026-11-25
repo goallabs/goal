@@ -50,6 +50,7 @@ export function Counter({ start }) {
 - [Getting started](getting-started): install goal.js and run your first app.
 - [Routes](routes) and [Components](components): the `.goal` language.
 - [Server functions](server-functions): calling the server from a component.
+- [Types](types): `#strict` files, checked before the app runs.
 - [Security](security): what is on by default, and how to change it.
 - [How it works](how-it-works): parse, compile, render and resume, and debugging.
 - [Performance](performance): benchmark results, and how to measure your own.
@@ -59,5 +60,4 @@ export function Counter({ start }) {
 
 goal.js is young, and these are not supported yet:
 
-- components inside a keyed list's row;
-- goal.js's own type system and `goal check`.
+- components inside a keyed list's row.

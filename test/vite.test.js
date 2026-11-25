@@ -12,6 +12,8 @@ const files = {
     "import { Counter } from './Counter.goal';\nimport { save } from './store.goal';\nexport function Panel() { var open = true; var n = 0; return <div onclick={() => (open = !open)}>{if (open) <Counter start={1} />}<button onclick={() => (n = save(n + 1))}>{n}</button></div>; }",
   'ui/Counter.goal': 'export function Counter({ start }) { var n = start; return <b onclick={() => n++}>{n}</b>; }',
   'ui/store.goal': 'export server function save(v) { return v * 10; }',
+  'typed/T.goal': '#strict\nimport { U } from "./U.goal";\nexport function T() { return <div><U n={1} /></div>; }\nroute GET /typed { return <main><T /></main>; }',
+  'typed/U.goal': '#strict\nexport function U({ n }: { n: number }) { return <b>{n}</b>; }',
   'node_modules/x/skip.goal': 'not goal',
   'notes.txt': 'not a source',
   'public/style.css': 'p {}',
@@ -51,6 +53,7 @@ describe('the Vite plugin', () => {
     expect(render).toContain('export function Counter(_$p = {}, _$c = _$ctx())');
     for (const source of ['/ui/Panel.goal', '/ui/store.goal?raw', '/app.goal?import']) expect((await fetch(url + source)).status).toBe(404); // the sources stay on the server
     expect(await (await fetch(url + '/style.css')).text()).toBe('p {}'); // Vite serves the public folder
+    expect(await (await fetch(url + '/typed')).text()).toContain('<b>1</b>'); // #strict files checked against each other
   });
 
   it('answers server functions behind the CSRF check', async () => {

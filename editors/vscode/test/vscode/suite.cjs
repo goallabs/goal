@@ -60,14 +60,23 @@ exports.run = async function run() {
   // Highlighting, as VS Code renders it.
   const tokens = await vscode.commands.executeCommand('_workbench.captureSyntaxTokens', uri);
   const scopes = (text) => tokens.find((t) => t.c.trim() === text)?.t ?? '';
-  assert.match(scopes('button'), /entity\.name\.tag\.js\.jsx/);
-  assert.match(scopes('var'), /storage\.type\.js\.jsx/);
+  assert.match(scopes('button'), /entity\.name\.tag\.tsx/);
+  assert.match(scopes('var'), /storage\.type\.tsx/);
 
   // A folder without goaljs is checked by the bundled copy.
   const plain = await open('plain/D.goal');
   d = await firstProblem(plain.uri, 'the bundled check');
   assert.equal(d.message, 'write onclick, the HTML name, not onClick');
-  assert.equal(d.source, 'goal.js (bundled)');
+  assert.match(d.source, /^goal\.js \d+\.\d+\.\d+ \(bundled\)$/);
+
+  // A #strict file's types, highlighted by VS Code's TypeScript React grammar under goal's.
+  const typed = await vscode.commands.executeCommand('_workbench.captureSyntaxTokens', vscode.Uri.file(path.join(WS, 'plain/S.goal')));
+  const typedScopes = (text) => typed.find((t) => t.c.trim() === text)?.t ?? '';
+  assert.match(typedScopes('#strict'), /keyword\.control\.directive\.strict\.goal/);
+  assert.match(typedScopes('Note'), /entity\.name\.type\.alias\.tsx/);
+  assert.match(typedScopes('boolean'), /support\.type\.primitive\.tsx/);
+  assert.match(typedScopes('id'), /variable\.parameter\.route\.goal/);
+  assert.match(typedScopes('number'), /support\.type\.primitive\.goal/);
 
   // When a project's compiler changes on disk, the next check uses the new one.
   fakeCompiler('rule one');

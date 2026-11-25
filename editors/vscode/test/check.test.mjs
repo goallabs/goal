@@ -6,19 +6,19 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { check } from '../src/check.mjs';
+import { EXAMPLES } from './examples.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
-const DEMO = join(ROOT, 'examples', 'demo');
 const compilers = {
   repository: (await import(pathToFileURL(join(ROOT, 'src', 'compiler.js')).href)).compile,
   bundled: (await import(pathToFileURL(join(HERE, '..', 'dist', 'compiler.mjs')).href)).compile,
 };
 
 for (const [name, compile] of Object.entries(compilers)) {
-  test(`${name} compiler: the demo app has no problems`, () => {
-    for (const f of ['app.goal', 'components/Board.goal', 'components/Counter.goal', 'components/Todo.goal', 'components/Toggle.goal'])
-      assert.equal(check(compile, readFileSync(join(DEMO, f), 'utf8'), join(DEMO, f)), null, f);
+  test(`${name} compiler: the example apps have no problems`, () => {
+    assert.ok(EXAMPLES.length >= 7, EXAMPLES.join());
+    for (const f of EXAMPLES) assert.equal(check(compile, readFileSync(f, 'utf8'), f), null, f);
   });
 
   test(`${name} compiler: a problem's line, column and message`, () => {
@@ -89,3 +89,24 @@ test("as a worker: a compiler that doesn't load is a problem at the top of the f
   assert.equal(results.get(7).line, 1);
   assert.match(results.get(7).message, /^couldn't load the goal.js compiler at .*no-such-compiler\.mjs: /);
 });
+
+for (const [name, path] of [
+  ['repository', join(ROOT, 'src', 'compiler.js')],
+  ['bundled', join(HERE, '..', 'dist', 'compiler.mjs')],
+]) {
+  test(`${name} compiler: a #strict file is checked against the #strict files it imports`, async () => {
+    const { compile, exportsOf } = await import(pathToFileURL(path).href);
+    const dir = mkdtempSync(join(tmpdir(), 'goal-strict-'));
+    try {
+      writeFileSync(join(dir, 'B.goal'), '#strict\nexport function B({ n }: { n: number }) { return <b>{n}</b>; }\n');
+      const a = join(dir, 'A.goal');
+      const text = '#strict\nimport { B } from "./B.goal";\nexport function A() { return <div><B n={1} /></div>; }\n';
+      assert.equal(check(compile, text, a, exportsOf), null);
+      assert.deepEqual(check(compile, text.replace('{1}', '"1"'), a, exportsOf), { line: 3, column: 38, message: "B's n is number, not string" });
+      assert.equal(check(compile, text.replace('./B.goal', './Missing.goal'), a, exportsOf).message, "./Missing.goal isn't #strict: a #strict file can import only #strict .goal files");
+      assert.equal(check(compile, text, a).message, "./B.goal isn't #strict: a #strict file can import only #strict .goal files"); // a compiler without exportsOf
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}

@@ -2,8 +2,8 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, cpSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { build, serve, dev } from '../src/build.js';
-import { main } from '../src/cli.js';
+import { build, serve, dev, check } from '../src/build.js';
+import { main, args } from '../src/cli.js';
 import { TMP } from './helpers.js';
 
 let n = 0;
@@ -230,6 +230,47 @@ describe('dev', () => {
   }, 20000); // three builds, each after the file watcher sees a change: slower when the other tests run too
 });
 
+describe('goal check', () => {
+  const B = '#strict\nexport type Note = { text: string };\nexport function Card({ note }: { note: Note }) { return <p>{note.text}</p>; }';
+  it('checks every file, #strict ones against what they import, and builds them', async () => {
+    const dir = app({
+      'B.goal': B,
+      'A.goal': '#strict\nimport { Card, Note } from "./B.goal";\nexport function A({ n }: { n: Note }) { return <div><Card note={n} /></div>; }\nroute GET / { return <main><A n={{ text: "hi" }} /></main>; }',
+      'C.goal': '#strict\nimport { Card } from "./missing.goal";\nexport function C() { return <div />; }',
+      'D.goal': 'export function D() { return <p>{undefinedThing}</p>; }',
+      'H.goal': '#strict\nimport { Note } from "./B.goal";\nexport function H({ n }: { n: Note }) { return <p>{n.text}</p>; }', // B.goal again: read once
+    });
+    expect(check(dir)).toEqual(["C.goal:2:1: ./missing.goal isn't #strict: a #strict file can import only #strict .goal files"]);
+    rmSync(join(dir, 'C.goal'));
+    expect(check(dir)).toEqual([]);
+    await build(dir);
+    const url = listen(await serve(dir, { port: 0 }));
+    expect(await (await fetch(url)).text()).toContain('<p>hi</p>');
+  });
+
+  it('prints the errors from the cli, and fails on them', async () => {
+    const dir = app({ 'B.goal': B, 'A.goal': '#strict\nimport { Card } from "./B.goal";\nexport function A() { return <div><Card note="x" /></div>; }' });
+    const log = [];
+    expect(await main(['check', dir], (m) => log.push(m))).toBe(1);
+    expect(log).toEqual(["A.goal:3:41: Card's note is { text: string }, not string", '1 file with errors']);
+    writeFileSync(join(dir, 'A.goal'), '#strict\nexport function A() { return <div />; }\nexport function E() { return <div />; }');
+    writeFileSync(join(dir, 'E.goal'), '#strict\nexport function E() { var x = []; return <b>{x.length}</b>; }');
+    writeFileSync(join(dir, 'F.goal'), '#strict\nexport function F({ n }) { return <b>{n}</b>; }');
+    log.length = 0;
+    expect(await main(['check', dir], (m) => log.push(m))).toBe(1);
+    expect(log.at(-1)).toBe('2 files with errors');
+    rmSync(join(dir, 'E.goal'));
+    rmSync(join(dir, 'F.goal'));
+    log.length = 0;
+    expect(await main(['check', dir], (m) => log.push(m))).toBe(0);
+    expect(log).toEqual(['no errors']);
+    writeFileSync(join(dir, 'G.goal'), 'route GET / {');
+    log.length = 0;
+    expect(await main(['check', dir], (m) => log.push(m))).toBe(1);
+    expect(log[0]).toMatch(/^G\.goal:1:\d+: /);
+  });
+});
+
 describe('cli', () => {
   it('builds and prints routes and sizes', async () => {
     const log = [];
@@ -259,18 +300,21 @@ describe('cli', () => {
   });
 
   it('uses the current folder and port 3000 by default, and prints usage', async () => {
+    expect(args(['start'])).toEqual({ cmd: 'start', app: '.', port: 3000 });
+    expect(args(['dev', 'site', '--port', '8080'])).toEqual({ cmd: 'dev', app: 'site', port: 8080 });
     const log = [];
     const cwd = process.cwd();
-    const dir = app({ 'app.goal': 'route GET / { return <p/>; }' });
+    const dir = app({ 'app.goal': 'route GET / { return <p>here</p>; }' });
     process.chdir(dir);
     try {
       expect(await main(['build'], (m) => log.push(m))).toBe(0);
-      listen(await main(['start'], (m) => log.push(m)));
-      expect(log.at(-1)).toBe('http://localhost:3000');
+      const url = listen(await main(['start', '--port', '0'], (m) => log.push(m))); // any free port: 3000 may be taken
+      expect(log.at(-1)).toBe(url);
+      expect(await (await fetch(url)).text()).toContain('<p>here</p>');
     } finally {
       process.chdir(cwd);
     }
     expect(await main([], (m) => log.push(m))).toBe(1);
-    expect(log.at(-1)).toBe('usage: goal build|start|dev [app folder] [--port 3000]');
+    expect(log.at(-1)).toBe('usage: goal build|start|dev|check [app folder] [--port 3000]');
   });
 });

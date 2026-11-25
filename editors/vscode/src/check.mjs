@@ -27,15 +27,32 @@ function serverFunctions(file) {
 }
 
 /**
+ * What another .goal file exports to a #strict file that imports it (types, components, server
+ * functions), read from disk with the compiler's exportsOf, which older compilers don't have.
+ */
+function typesOf(file, exportsOf) {
+  return (spec) => {
+    if (!exportsOf || !isAbsolute(file) || !spec.startsWith('.')) return null;
+    const target = resolve(dirname(file), spec);
+    try {
+      return exportsOf(readFileSync(target, 'utf8'), basename(target));
+    } catch {
+      return null;
+    }
+  };
+}
+
+/**
  * Compiles `text`, the contents of `file`, and returns the first problem, or null.
  * @param {(source: string, opts: object) => unknown} compile  goal.js's compile()
+ * @param {((source: string, file: string) => object) | undefined} exportsOf  goal.js's exportsOf, for #strict files
  * @param {string} text
  * @param {string} file  an absolute path, or just a name for a file that isn't saved
  * @returns {{ line: number, column: number, message: string } | null}  line and column count from 1
  */
-export function check(compile, text, file) {
+export function check(compile, text, file, exportsOf) {
   try {
-    compile(text, { file: basename(file), serverFunctions: serverFunctions(file) });
+    compile(text, { file: basename(file), serverFunctions: serverFunctions(file), typesOf: typesOf(file, exportsOf) });
     return null;
   } catch (e) {
     if (e?.name === 'GoalError') return { line: e.line, column: e.column, message: e.message.slice(`${e.file}:${e.line}:${e.column}: `.length) };
@@ -44,12 +61,13 @@ export function check(compile, text, file) {
 }
 
 if (parentPort) {
-  const compiler = import(workerData.compiler).then((m) => m.compile);
+  const compiler = import(workerData.compiler);
   compiler.catch(() => {}); // a compiler that doesn't load is reported with each check, below
   parentPort.on('message', async ({ id, text, file }) => {
     let result;
     try {
-      result = check(await compiler, text, file);
+      const m = await compiler;
+      result = check(m.compile, text, file, m.exportsOf);
     } catch (e) {
       result = { line: 1, column: 1, message: `couldn't load the goal.js compiler at ${workerData.path}: ${e?.message ?? e}` };
     }

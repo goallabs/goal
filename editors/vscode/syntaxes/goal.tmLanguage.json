@@ -2,10 +2,13 @@
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "name": "goal.js",
   "scopeName": "source.goal",
-  "comment": "goal.js is JavaScript + JSX (VS Code's built-in source.js.jsx) with three additions: `route METHOD /path/{param} { }` at the top level, `server function`, and `{if (a) X else if (b) Y else Z}` in markup. The additions are injections, so the JSX grammar does everything else.",
+  "comment": "goal.js is JavaScript + JSX, highlighted with VS Code's built-in TypeScript React grammar (source.tsx) so that the types in #strict files highlight too, with goal's additions: `#strict` on the first line, `route METHOD /path/{param} { }` at the top level, `server function`, and `{if (a) X else if (b) Y else Z}` in markup. The route, server function and {if} are injections, so the TSX grammar does everything else.",
   "patterns": [
     {
-      "include": "source.js.jsx"
+      "include": "#strict"
+    },
+    {
+      "include": "source.tsx"
     }
   ],
   "injections": {
@@ -19,7 +22,7 @@
         }
       ]
     },
-    "L:source.goal meta.embedded.expression.js.jsx - (comment | string)": {
+    "L:source.goal meta.embedded.expression.tsx - (comment | string)": {
       "patterns": [
         {
           "include": "#markup-if"
@@ -31,9 +34,18 @@
     }
   },
   "repository": {
+    "strict": {
+      "comment": "#strict on the first line: the file's types are checked",
+      "match": "\\A\\s*(#strict)(?=[ \\t]*$)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.directive.strict.goal"
+        }
+      }
+    },
     "route": {
-      "comment": "route GET /users/{id} {   the body that follows is an ordinary block",
-      "match": "^\\s*(route)\\s+([A-Z]+)\\s+(/\\S*)(?=\\s*\\{)",
+      "comment": "route GET /users/{id} {  or, in a #strict file, /users/{id: number}; the body that follows is an ordinary block",
+      "match": "^\\s*(route)\\s+([A-Z]+)\\s+(/(?:\\{[^}\\n]*\\}|[^\\s{])*)(?=\\s*\\{)",
       "captures": {
         "1": {
           "name": "storage.type.route.goal"
@@ -54,7 +66,7 @@
           "name": "string.unquoted.route-path.goal",
           "patterns": [
             {
-              "match": "(\\{)([A-Za-z_][A-Za-z0-9_]*)(\\})",
+              "match": "(\\{)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(?:(:)\\s*([^}\\s]*)\\s*)?(\\})",
               "captures": {
                 "1": {
                   "name": "punctuation.definition.parameter.begin.goal"
@@ -63,6 +75,21 @@
                   "name": "variable.parameter.route.goal"
                 },
                 "3": {
+                  "name": "keyword.operator.type.annotation.goal"
+                },
+                "4": {
+                  "patterns": [
+                    {
+                      "match": "(?<![\\w$])(?:string|number)(?![\\w$])",
+                      "name": "support.type.primitive.goal"
+                    },
+                    {
+                      "match": "[^}\\s]+",
+                      "name": "invalid.illegal.route-parameter-type.goal"
+                    }
+                  ]
+                },
+                "5": {
                   "name": "punctuation.definition.parameter.end.goal"
                 }
               }
@@ -119,22 +146,22 @@
     "markup-value": {
       "patterns": [
         {
-          "include": "source.js.jsx#comment"
+          "include": "source.tsx#comment"
         },
         {
-          "include": "source.js.jsx#jsx-tag-without-attributes"
+          "include": "source.tsx#jsx-tag-without-attributes"
         },
         {
-          "include": "source.js.jsx#jsx-tag"
+          "include": "source.tsx#jsx-tag"
         },
         {
-          "include": "source.js.jsx#control-statement"
+          "include": "source.tsx#control-statement"
         },
         {
-          "include": "source.js.jsx#decl-block"
+          "include": "source.tsx#decl-block"
         },
         {
-          "include": "source.js.jsx#expression"
+          "include": "source.tsx#expression"
         }
       ]
     }

@@ -38,6 +38,7 @@ const routes = [
     },
   },
   { method: 'GET', path: '/kept', handler: (r, x) => x.json(x.ctx.hmr ?? null) },
+  { method: 'GET', path: '/num/{id}', types: { id: 'number' }, handler: (r, x) => x.json(r.params) },
   { method: 'GET', path: '/kept-k', handler: (r, x) => x.json([x.ctx.k('/c/A.js', 0), x.ctx.k('/c/B.js', 0), x.ctx.k('/c/A.js', 1)]) },
   {
     method: 'POST',
@@ -145,6 +146,12 @@ describe('files', () => {
 });
 
 describe('routes', () => {
+  it('match a path parameter typed as a number only to a number, which the route gets', async () => {
+    expect(await (await fetch(url + '/num/12')).json()).toEqual({ id: 12 });
+    expect(await (await fetch(url + '/num/-1.5')).json()).toEqual({ id: -1.5 });
+    expect((await fetch(url + '/num/12a')).status).toBe(404);
+  });
+
   it('match fixed paths before parameters, and decode parameters', async () => {
     expect(await (await fetch(url + '/users/me')).json()).toBe('me');
     expect(await (await fetch(url + '/users/a%20b/?x=1')).json()).toEqual({ id: 'a b', q: { x: '1' }, path: '/users/a%20b/' });

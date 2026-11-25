@@ -15,6 +15,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 const BUNDLED = path.join(__dirname, '..', 'dist', 'compiler.mjs');
+const BUNDLED_LABEL = `goal.js ${require('../dist/compiler.json').version} (bundled)`; // see scripts/bundle.mjs
 const DELAY = 200; // ms after the last keystroke
 const WORD = /<\/?[A-Za-z][\w$.:-]*|[\w$][\w$-]*/; // what an error's squiggle covers: a name, or a tag's start
 
@@ -69,7 +70,7 @@ function activate(context) {
         // the project has no goaljs: use the bundled copy
       }
     }
-    return { path: BUNDLED, source: 'goal.js (bundled)' };
+    return { path: BUNDLED, source: BUNDLED_LABEL };
   }
 
   function checkerFor(compiler) {

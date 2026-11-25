@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import * as esbuild from 'esbuild';
 import { compile } from './compiler.js';
+import { exportsOf } from './types.js';
 import { desugar } from './syntax.js';
 import { loaderScript } from './server.js';
 import { createApp } from './app.js';
@@ -66,6 +67,41 @@ const entriesPlugin = (entries, renders) => {
 };
 
 /**
+ * What the .goal files tell each other: the server functions each exports, so files can import them,
+ * and what a #strict file that imports one gets from it (see types.js), each read once.
+ */
+function linker(app, all) {
+  const exported = new Map();
+  for (const rel of all.filter((f) => f.endsWith('.goal')))
+    exported.set(rel, desugar(readFileSync(join(app, rel), 'utf8'), rel).serverFns.filter((f) => f.exported).map((f) => f.name));
+  const typed = new Map();
+  const to = (rel, spec) => posix.join(posix.dirname(rel), spec);
+  return {
+    serverFunctions: (rel) => (spec) => (exported.has(to(rel, spec)) ? { base: to(rel, spec).slice(0, -5), names: exported.get(to(rel, spec)) } : null),
+    typesOf: (rel) => (spec) => {
+      const target = to(rel, spec);
+      if (!exported.has(target)) return null;
+      if (!typed.has(target)) typed.set(target, exportsOf(readFileSync(join(app, target), 'utf8'), target));
+      return typed.get(target);
+    },
+  };
+}
+
+/** goal check: compiles every .goal file as goal build does, types too, and gives each file's first error. */
+export function check(app) {
+  const all = files(app);
+  const link = linker(app, all);
+  const errors = [];
+  for (const rel of all.filter((f) => f.endsWith('.goal')))
+    try {
+      compile(readFileSync(join(app, rel), 'utf8'), { file: rel, base: rel.slice(0, -5), rt: RT, keyed: KEYED, serverFunctions: link.serverFunctions(rel), typesOf: link.typesOf(rel) });
+    } catch (e) {
+      errors.push(e.message);
+    }
+  return errors;
+}
+
+/**
  * Compiles an app into dist/. Throws on a compile error or a duplicate route.
  * `dev` keeps chunks readable with source maps back to the .goal files; otherwise they are minified
  * and the source stays on the server. `publicPath` is where the site is served from.
@@ -80,10 +116,7 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
   const renders = new Map(); // render modules, by .goal file
   rmSync(out, { recursive: true, force: true });
   const all = files(app);
-  // The server functions each .goal file exports, so files can import them from each other.
-  const exported = new Map();
-  for (const rel of all.filter((f) => f.endsWith('.goal')))
-    exported.set(rel, desugar(readFileSync(join(app, rel), 'utf8'), rel).serverFns.filter((f) => f.exported).map((f) => f.name));
+  const link = linker(app, all);
   for (const rel of all) {
     if (rel === 'goal.config.js') continue;
     if (!rel.endsWith('.goal')) {
@@ -91,13 +124,9 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
       continue;
     }
     const base = rel.slice(0, -5);
-    const serverFunctions = (spec) => {
-      const target = posix.join(posix.dirname(rel), spec);
-      return exported.has(target) ? { base: target.slice(0, -5), names: exported.get(target) } : null;
-    };
     // In dev a chunk's URL names the build, so a page updated live loads the new code.
     const chunk = (n) => `${publicPath}c/${base}.${n}.js${dev ? `?v=${version}` : ''}`;
-    const r = compile(readFileSync(join(app, rel), 'utf8'), { file: rel, base, rt: RT, keyed: KEYED, chunk, serverFunctions, dev });
+    const r = compile(readFileSync(join(app, rel), 'utf8'), { file: rel, base, rt: RT, keyed: KEYED, chunk, dev, serverFunctions: link.serverFunctions(rel), typesOf: link.typesOf(rel) });
     const server = r.server.replace(/((?:from|import)\s*["'])(\.{1,2}\/[^"']+?)(\.goal|\.m?js)(["'])/g, (_, a, p, ext, b) => `${a}${p}${ext === '.goal' ? '.js' : ext}?v=${version}${b}`);
     write(join(out, 'server', base + '.js'), server);
     if (r.routes.length || r.serverFunctions.length) routeFiles.push(base);

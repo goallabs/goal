@@ -46,6 +46,7 @@ npx goal dev .        # build the app in this folder, serve it on http://localho
 also cover [routes](https://goallabs.github.io/goal/routes),
 [components](https://goallabs.github.io/goal/components),
 [server functions](https://goallabs.github.io/goal/server-functions),
+[types](https://goallabs.github.io/goal/types),
 [security](https://goallabs.github.io/goal/security),
 [how it works](https://goallabs.github.io/goal/how-it-works),
 [performance](https://goallabs.github.io/goal/performance), and working in

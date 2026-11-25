@@ -72,8 +72,38 @@ export const _$sf = async (url, args) => {
 };
 
 /** Runs a server function for a request from the browser: the arguments are a JSON array. */
-export const _$call = async (fn, r, x) =>
-  Array.isArray(r.json) ? x.json({ v: (await fn(...r.json)) ?? null }) : x.json({ error: 'send the arguments as a JSON array' }, 400);
+export const _$call = async (fn, r, x, types) => {
+  if (!Array.isArray(r.json)) return x.json({ error: 'send the arguments as a JSON array' }, 400);
+  // A server function in a #strict file: arguments that aren't of its types never reach it.
+  if (types && (r.json.length > types.length || !types.every((p, i) => (r.json[i] === undefined || r.json[i] === null ? p.optional || _$ok(r.json[i], p.type) : _$ok(r.json[i], p.type)))))
+    return x.json({ error: "the arguments aren't of the types the function takes" }, 400);
+  return x.json({ v: (await fn(...r.json)) ?? null });
+};
+
+/** Is this JSON value of type x (see types.js)? What JSON can't carry, like a function, isn't checked here. */
+export function _$ok(v, x) {
+  switch (x.k) {
+    case 'string':
+    case 'number':
+    case 'boolean':
+      return typeof v === x.k;
+    case 'null':
+      return v === null;
+    case 'undefined':
+    case 'void':
+      return v == null; // JSON has no undefined: null stands for it
+    case 'lit':
+      return v === x.v;
+    case 'array':
+      return Array.isArray(v) && v.every((y) => _$ok(y, x.of));
+    case 'object':
+      return !!v && typeof v === 'object' && !Array.isArray(v) && Object.entries(x.fields).every(([n, f]) => (v[n] == null ? f.optional || _$ok(v[n], f.type) : _$ok(v[n], f.type)));
+    case 'union':
+      return x.of.some((y) => _$ok(v, y));
+    default:
+      return true;
+  }
+}
 
 /** A render: numbers component instances, collects the page's events, and holds the CSRF token. */
 export const _$ctx = (t = '') => ({

@@ -17,6 +17,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compile } from './compiler.js';
 import { desugar } from './syntax.js';
+import { exportsOf } from './types.js';
 import { createApp } from './app.js';
 
 const SRC = dirname(fileURLToPath(import.meta.url)); // compiled code imports the helpers from here
@@ -56,6 +57,10 @@ export function goal({ config = {} } = {}) {
         const target = resolve(dirname(file), spec);
         const names = desugar(readFileSync(target, 'utf8'), spec).serverFns.filter((f) => f.exported).map((f) => f.name);
         return { base: slash(relative(root, target)).slice(0, -5), names };
+      },
+      typesOf: (spec) => {
+        const target = resolve(dirname(file), spec);
+        return exportsOf(readFileSync(target, 'utf8'), slash(relative(root, target)));
       },
     });
   };
