@@ -1,0 +1,56 @@
+---
+title: Security
+nav_order: 6
+---
+
+# Security
+
+All of this is on with no setup. `goal.config.js`, at the top of the app folder, can change the parts
+marked *config*:
+
+```js
+export default { csp: "default-src 'self'; script-src 'self' 'nonce-{nonce}'", csrf: false, bodyLimit: 5_000_000 };
+```
+
+## Escaping
+
+Every value is escaped in text and in attributes. There is no raw-HTML escape hatch. `<script>`,
+`<style>`, `srcdoc` and string event handlers (`onclick="..."`) are compile errors.
+
+## URLs
+
+In `href`, `src`, `action`, `formaction` and the other URL attributes, only relative, `http(s):`,
+`mailto:` and `tel:` URLs get through. A `javascript:` or `data:` URL written in the source is a
+compile error. One that comes from data becomes `about:invalid#blocked`, on the server and when the
+browser patches the page.
+
+## Headers
+
+Every response has:
+
+- a strict Content-Security-Policy with a fresh nonce for the loader (*config* `csp`, where `{nonce}`
+  is replaced, or `false` to send none);
+- `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `frame-ancestors 'none'`;
+- same-origin opener and resource policies, a Referrer-Policy and a Permissions-Policy;
+- HSTS over TLS.
+
+## CSRF
+
+A POST, PUT, PATCH or DELETE from another site is refused: always when `Origin` or `Sec-Fetch-Site`
+says cross-site, and without `Sec-Fetch-Site: same-origin` the request needs the CSRF token. Forms
+that send data get the token as a hidden field automatically, server functions send it for you, and
+your own `fetch` can send it as the `x-csrf-token` header (*config* `csrf: false` to turn it off).
+
+## Only what the browser needs
+
+A component's root element carries its state and only the props its browser code reads. Props used
+only while rendering on the server never reach the page.
+
+## The rest
+
+- Request bodies are limited to 1 MB (*config* `bodyLimit`).
+- `redirect()` stays on this site unless told otherwise.
+- Cookies are `HttpOnly`, `Secure` and `SameSite=Lax` unless a route says otherwise.
+- Static files are served only from `public/` and the chunks folder.
+- Error details (the stack) are shown only in `goal dev`. Otherwise the page is a plain error page, and
+  the error is logged.

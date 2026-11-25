@@ -2,16 +2,34 @@
   "name": "goaljs",
   "version": "0.1.0",
   "description": "goal.js: var is state, let/const are computed, SSR + resumable, 1 KB per component",
+  "homepage": "https://goallabs.github.io/goal/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goallabs/goal.git"
+  },
+  "bugs": {
+    "url": "https://github.com/goallabs/goal/issues"
+  },
   "scripts": {
     "test": "vitest run --coverage",
     "build:demo": "node bin/goal.js build examples/demo",
     "demo": "node bin/goal.js dev examples/demo",
     "bench:virtual": "node bench/virtual.mjs"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "framework",
+    "compiler",
+    "ssr",
+    "resumable",
+    "jsx",
+    "server-functions"
+  ],
   "license": "MIT",
   "type": "module",
+  "files": [
+    "bin",
+    "src"
+  ],
   "dependencies": {
     "@babel/generator": "^8.1.3",
     "@babel/parser": "^8.1.3",

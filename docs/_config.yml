@@ -1,0 +1,16 @@
+title: goal.js
+description: A compiled JavaScript framework where var is state and let/const are computed. Server-rendered, resumable, at most 1 KB of JavaScript per component, secure by default.
+url: https://goallabs.github.io
+baseurl: /goal
+
+remote_theme: just-the-docs/just-the-docs@v0.12.0
+plugins:
+  - jekyll-remote-theme
+
+search_enabled: true
+heading_anchors: true
+aux_links:
+  GitHub: https://github.com/goallabs/goal
+  npm: https://www.npmjs.com/package/goaljs
+aux_links_new_tab: true
+footer_content: 'goal.js is MIT licensed. <a href="https://github.com/goallabs/goal">Source on GitHub</a>.'

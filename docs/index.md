@@ -1,0 +1,64 @@
+---
+title: Home
+nav_order: 1
+---
+
+# goal.js
+
+A compiled JavaScript framework where **`var` is state** and **`let`/`const` are computed**.
+
+- **Server-rendered and resumable.** Pages are rendered on the server, and the browser resumes them
+  instead of hydrating: no component code runs at load.
+- **Small.** Each component's code, at most 1 KB gzipped, loads on its first event. A page with no
+  events ships no JavaScript at all.
+- **No `async`, no `fetch`.** Components reach the server through [server functions](server-functions),
+  called like plain functions.
+- **Secure by default.** Escaping, URL checks, a strict Content-Security-Policy, CSRF protection and
+  safe cookies are on with no setup. Each one has an explicit way out. See [Security](security).
+- **HTML as written.** Events are `onclick`, attributes are `class` and `for`, and `{if}` goes straight
+  in the markup. There is no `bind:`, `@`, `:` or `$`.
+
+```jsx
+// app.goal
+import { Counter } from './Counter.goal';
+
+route GET / {
+  return <main><h1>Hello</h1><Counter start={1} /></main>;
+}
+```
+
+```jsx
+// Counter.goal
+export function Counter({ start }) {
+  var count = start;                         // state
+  const double = count * 2;                  // computed
+
+  return (
+    <div>
+      <button onclick={() => count++}>+</button>
+      <p>{double}</p>
+      {if (count > 9) <b>big</b> else <span>small</span>}
+    </div>
+  );
+}
+```
+
+## Where to go next
+
+- [Getting started](getting-started): install goal.js and run your first app.
+- [Routes](routes) and [Components](components): the `.goal` language.
+- [Server functions](server-functions): calling the server from a component.
+- [Security](security): what is on by default, and how to change it.
+- [How it works](how-it-works): parse, compile, render and resume, and debugging.
+- [Performance](performance): benchmark results, and how to measure your own.
+
+## Status
+
+This is version 0.1.0. These are not supported yet:
+
+- keyed lists inside another list's row, or inside an element in an `{if}` branch (a compile error for
+  now);
+- props that change, children passed to components, function props, and components inside `{...}`
+  holes of a component (in routes they work anywhere);
+- keeping focus in an input inside a `{...}` hole, which is replaced as a whole when it changes;
+- goal.js's own type system and `goal check`, a Vite plugin, and multipart (file upload) bodies.
