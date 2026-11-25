@@ -80,6 +80,71 @@ and what was typed.
 
 A list that never changes, such as one in a route, renders once and needs no key.
 
+## Components inside components
+
+A component can render another anywhere in its markup: in its fixed part, in an `{if}` or ternary
+branch, or in a list without keys.
+
+```jsx
+export function Panel() {
+  var open = true;
+  var n = 1;
+  return (
+    <div>
+      <button onclick={() => n++}>more</button>
+      {if (open) <Counter start={n} />}
+      <Counter start={n} />
+    </div>
+  );
+}
+```
+
+- When the props a child gets read state, the child is rendered again in the browser when they change.
+  It keeps its own state, so the second `Counter` above shows the new `start` and keeps its count.
+- A component in a `{...}` hole starts from its props when it appears, and keeps its state while it
+  stays.
+- A child without state or handlers ships no code of its own: its parent renders it again.
+
+To render a child in the browser, the parent's code includes the child's template, and the module code
+it uses, but nothing else from the child's file: routes and server functions stay on the server.
+
+### Children
+
+Markup between a component's tags is its `children`:
+
+```jsx
+<Card title="Total"><p>{count}</p><button onclick={() => count++}>+</button></Card>
+```
+
+```jsx
+export function Card({ title, children }) {
+  return <section><h2>{title}</h2>{children}</section>;
+}
+```
+
+Children belong to the component that wrote them: `{count}` and the `onclick` above are the parent's,
+wherever `Card` puts them. Put `{children}` in the child's fixed part, not inside a `{...}` hole that
+renders again: that would be a compile error.
+
+### Function props
+
+A function passed as a prop runs in the component that passed it:
+
+```jsx
+<Picker onpick={(x) => (picked = x)} />
+```
+
+```jsx
+export function Picker({ onpick }) {
+  var n = 0;
+  return <button onclick={() => onpick(++n)}>pick</button>;
+}
+```
+
+When `Picker` calls `onpick`, the parent's state changes and the parent updates, as if it had handled
+an event itself. Call a function prop from an event handler, not while rendering: on the server it does
+nothing.
+
 ## Compile errors
 
 Breaking a rule is a compile error with the file, line and column:
@@ -91,5 +156,4 @@ components/Counter.goal:9:15: write onclick, the HTML name, not onClick
 
 ## Not supported yet
 
-- Props that change, children passed to components, and function props.
-- Components inside `{...}` holes of a component. In routes they work anywhere.
+- Components inside a keyed list's row.

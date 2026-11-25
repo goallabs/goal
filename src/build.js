@@ -47,7 +47,11 @@ const noGoal = {
 };
 
 /** Client modules as esbuild entry points, each resolved from its .goal file's folder. */
-const entriesPlugin = (entries) => {
+/**
+ * Client modules as esbuild entry points, each resolved from its .goal file's folder, and the render
+ * modules they import (`goal-render:./Panel.goal`, see renderModule in compiler.js), by .goal file.
+ */
+const entriesPlugin = (entries, renders) => {
   // Each entry sits, in name, next to its .goal file, so source maps name that file from the app folder.
   const byPath = new Map([...entries.values()].map((e) => [join(e.dir, `${e.name}.goal.js`), e]));
   return {
@@ -55,6 +59,8 @@ const entriesPlugin = (entries) => {
     setup(b) {
       b.onResolve({ filter: /^goal-entry:/ }, (a) => ({ path: join(entries.get(a.path.slice(11)).dir, `${entries.get(a.path.slice(11)).name}.goal.js`) }));
       b.onLoad({ filter: /\.goal\.js$/ }, (a) => ({ contents: byPath.get(a.path).code, resolveDir: byPath.get(a.path).dir, loader: 'js' }));
+      b.onResolve({ filter: /^goal-render:/ }, (a) => ({ path: `${resolve(a.resolveDir, a.path.slice(12))}.render.js` }));
+      b.onLoad({ filter: /\.goal\.render\.js$/ }, (a) => ({ contents: renders.get(a.path.slice(0, -10)), resolveDir: dirname(a.path), loader: 'js' }));
     },
   };
 };
@@ -71,6 +77,7 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
   const routes = [];
   const routeFiles = [];
   const entries = new Map(); // client modules, by output name
+  const renders = new Map(); // render modules, by .goal file
   rmSync(out, { recursive: true, force: true });
   const all = files(app);
   // The server functions each .goal file exports, so files can import them from each other.
@@ -101,6 +108,7 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
       if (other) throw new Error(`${rel}: route ${route.method} ${route.path} is already in ${other.file}`);
       routes.push({ key, file: rel, label: `${route.method} ${route.path}` });
     }
+    renders.set(resolve(app, rel), r.render);
     for (const c of r.clients) entries.set(`${base}.${c.name}`, { code: c.code, dir: resolve(app, dirname(rel)), name: `${posix.basename(base)}.${c.name}` });
   }
   // All browser code in one bundle with code splitting: each component is its own file, and code
@@ -121,7 +129,7 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
           format: 'esm',
           write: false,
           logLevel: 'silent',
-          plugins: [entriesPlugin(entries), noGoal],
+          plugins: [entriesPlugin(entries, renders), noGoal],
         })
       ).outputFiles;
     // A chunk with a keyed list imports the patcher from its own file, next to the chunks.

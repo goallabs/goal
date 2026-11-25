@@ -79,6 +79,55 @@ export const _$ctx = (t = '') => ({
   },
 });
 
+/**
+ * The context of components rendered in the browser: inside a {...} hole, or with props that change.
+ * Their instance numbers start where no server render reaches, their forms get the page's CSRF
+ * token, and the loader starts listening for their events.
+ */
+export const _$B = {
+  i: 1e6,
+  r: null, // the component running now: the loader sets it before each run
+  /**
+   * The context for the components rendered in hole `n` of the component running now. Each one
+   * keeps the state of the component in its place, if it is the same (see keptState in compiler.js):
+   * the components in that hole now, in order. One where there was none starts as written.
+   */
+  h(n) {
+    const r = this.r;
+    const d = r.ownerDocument;
+    const w = d.createTreeWalker(r, 128);
+    let c;
+    while ((c = w.nextNode()) && c.data !== `${r.getAttribute('m-i')}.${n}`);
+    const q = [];
+    for (let x = c.nextSibling; x.nodeType !== 8 || x.data !== '/'; x = x.nextSibling)
+      if (x.nodeType === 1) q.push(...(x.hasAttribute('m-c') ? [x] : []), ...x.querySelectorAll('[m-c]'));
+    const b = this;
+    return {
+      get i() {
+        return b.i;
+      },
+      set i(v) {
+        b.i = v;
+      },
+      t: d.querySelector('meta[name="goal-csrf"]').content, // a page with components that run has it
+      e: (list) => d.dispatchEvent(new CustomEvent('goal:listen', { detail: list })),
+      k: (chunk) => {
+        const j = q.findIndex((x) => x.getAttribute('m-c').split('?')[0] === chunk);
+        if (j < 0) return null;
+        const x = q.splice(0, j + 1).pop();
+        return x.$s ?? JSON.parse(x.getAttribute('m-s')); // only a component with state asks
+      },
+    };
+  },
+};
+
+/**
+ * A function prop: handler `h` of the component instance `i` that gives it. It runs nothing where it
+ * is made; the page gets {$h, $i}, and the loader turns that into a function that runs the handler
+ * in that component, as an event would.
+ */
+export const _$f = (h, i) => Object.assign(() => {}, { toJSON: () => ({ $h: h, $i: i }) });
+
 /** The server's rendering of a keyed list (see keyed.js): each row through its template. */
 export const _$hl = (rows, tpl) => rows.map(tpl).join('');
 
@@ -145,6 +194,9 @@ function same(a, b) {
   for (const { name } of [...a.attributes]) if (!b.hasAttribute(name)) attr(a, name, null);
   for (const { name, value } of b.attributes) if (a.getAttribute(name) !== value) attr(a, name, value);
   kids(a, a.firstChild, null, b);
+  // A component rendered again in the browser, with its state now (see _$B.k): its attributes say
+  // all, so the loader reads it afresh on its next event.
+  if (a.hasAttribute('m-c')) a.$s = a.$p = a.$x = a.$m = undefined;
 }
 
 /** An attribute that changed. As when the page is rendered, a form control's value and checked follow it. */

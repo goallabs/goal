@@ -13,7 +13,7 @@ nav_order: 7
    parts of the markup that do: `{...}` holes get comment markers, and attributes get an id. Everything
    else is plain HTML.
 3. **Render on the server.** A component's root element carries its chunk's URL, its state and the
-   props its browser code reads. The page inlines the loader (under 1 KB gzipped), with the CSP nonce,
+   props its browser code reads. The page inlines the loader (about 1 KB gzipped), with the CSP nonce,
    only if the page has events. A page with no events ships no JavaScript at all.
 4. **Resume in the browser.** The loader listens for the page's events at the document. On the first
    event in a component, it loads that component's chunk: the component as written,
@@ -28,7 +28,7 @@ nav_order: 7
 `goal build` prints the gzipped size of each client chunk and of the loader. Helpers that several
 components share go in a chunk of their own, and the keyed-list code in another, loaded only by
 components with a keyed list. In the demo app, the component chunks are 270 to 560 B,
-the shared helpers 941 B, the keyed-list code 1015 B, and the loader 874 B.
+the shared helpers 1041 B, the keyed-list code 1077 B, and the loader 1064 B.
 
 ## Live updates in goal dev
 

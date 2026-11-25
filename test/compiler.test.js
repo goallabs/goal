@@ -321,6 +321,128 @@ describe('handlers inside lists', () => {
   });
 });
 
+describe('components rendered in the browser', () => {
+  const SRC = `
+    import { Ext } from './ext.goal';
+    import { helper } from './lib.js';
+    const store = [];
+    export server function save(v) { store.push(v); return store; }
+    export function Panel({ title }) {
+      var open = true;
+      var n = 1;
+      return (
+        <div onclick={() => (open = !open)}>
+          {if (open) <Counter start={n} />}
+          <Counter start={n} />
+          <Counter start={1} />
+          <Show value={title} />
+          {if (open) <Ext />}
+        </div>
+      );
+    }
+    export function Counter({ start }) {
+      var count = start;
+      return <p onclick={() => count++}>{count}</p>;
+    }
+    function Show({ value }) { return <b>{helper(value)}</b>; }
+    route GET / { return <main><Panel title="t" /></main>; }`;
+
+  it('render a component in a hole, and one whose props read state, from the render module', () => {
+    const r = build(SRC, 'ui/Panel.goal');
+    const panel = r.clients.find((c) => c.name === 'Panel').code;
+    expect(panel).toContain('import { Ext } from "goal-render:./ext.goal";');
+    expect(panel).toContain('import { Counter } from "goal-render:./Panel.goal";');
+    expect(panel).toContain('Counter({\n    "start": n\n  }, _$B.h(0))'); // in the {if} hole
+    expect(panel).toContain('Counter({\n    "start": n\n  }, _$B.h(1))'); // its own hole: its props read state
+    expect(panel).toContain('Ext({}, _$B.h(2))');
+    expect(panel).toContain('export { _$B } from');
+    expect(panel).not.toContain('Show'); // fixed props: rendered once, on the server
+    expect(r.render).toContain('export function Panel(');
+    expect(r.render).toContain('export function Show(');
+    expect(r.render).toContain('const _$o = _$c.k?.("/c/Counter.js", _$i);');
+    expect(r.render).toContain('import { helper } from \'./lib.js\';');
+    for (const gone of ['store', 'save', 'main']) expect(r.render).not.toContain(gone); // server code stays on the server
+  });
+
+  it('leave out module code the components never use, unless it runs something', () => {
+    const r = build(`
+      const cache = {};
+      const table = { a: 1, b: [2, , 3] };
+      const made = { ...seed() };
+      const named = { [key()]: 1 };
+      const listed = [now()];
+      export function C() { var n = 0; return <p onclick={() => n++}>{n}</p>; }`);
+    for (const gone of ['cache', 'table']) expect(r.render).not.toContain(gone);
+    for (const kept of ['made', 'named', 'listed']) expect(r.render).toContain(kept);
+  });
+
+  it('put a component whose props read state between markers on the server', async () => {
+    const { server } = await load(SRC.replace("import { Ext } from './ext.goal';", 'function Ext() { return <i>e</i>; }').replace("import { helper } from './lib.js';", 'const helper = (v) => v;'));
+    const html = render(server.Panel, { title: 'T' }).html;
+    expect(html).toContain('<!--0.0--><p m-on="click:0" m-c="/c/Counter.js" m-i="1" m-s="{&quot;count&quot;:1}">'); // in the hole
+    expect(html).toContain('<!--/--><!--0.1--><p m-on="click:0" m-c="/c/Counter.js" m-i="2"');
+    expect(html).toContain('<b>T</b>');
+  });
+});
+
+describe('children', () => {
+  const SRC = `
+    export function Page() {
+      var n = 0;
+      var show = false;
+      return (
+        <main>
+          <Card title="fixed"><p class="n">{n}</p><button class="inc" onclick={() => n++}>+</button></Card>
+          <button class="show" onclick={() => (show = !show)}>show</button>
+          {if (show) <Card title="later"><button class="dec" onclick={() => n--}>-</button></Card>}
+        </main>
+      );
+    }
+    export function Card({ title, children }) {
+      var open = 0;
+      return <section onclick={() => open++}><h2>{title}</h2>{children}<i class="open">{open}</i></section>;
+    }`;
+
+  it("give the child markup whose bindings and handlers are the parent's", async () => {
+    const { server } = await load(SRC);
+    const html = render(server.Page).html;
+    expect(html).toContain('<p class="n"><!--0.0-->0<!--/--></p><button class="inc" m-on="click:0@0">+</button>');
+    expect(html).toContain('<h2>fixed</h2>');
+    expect(build('route GET / { return <main><Box><b>x</b></Box></main>; }\nfunction Box({ children }) { return <div>{children}</div>; }').server).toContain('"children": _$m(`<b>x</b>`)');
+  });
+
+  it.each([
+    'export function Card({ children }) { var open = 1; return <div onclick={() => (open = !open)}>{if (open) children}</div>; }',
+    'export function Card(props) { var open = 1; return <div onclick={() => (open = !open)}>{open ? props.children : null}</div>; }',
+  ])('keep children out of a hole that renders again: %s', (src) => {
+    expect(errorOf(src)).toContain('put {children} in the fixed part of the component');
+  });
+});
+
+describe('function props', () => {
+  it("pass a handler of the parent, which the page writes as {$h, $i}", async () => {
+    const src = `
+      export function Page() {
+        var picked = '';
+        var open = true;
+        return <main onclick={() => (open = !open)}><Picker onpick={(x) => (picked = x)} /><p>{picked}</p>{if (open) <Picker format={(x) => x} />}</main>;
+      }
+      export function Picker({ onpick }) { var n = 0; return <button onclick={() => onpick(++n)}>pick</button>; }`;
+    const { server, r } = await load(src);
+    const html = render(server.Page).html;
+    expect(html).toContain('m-p="{&quot;onpick&quot;:{&quot;$h&quot;:1,&quot;$i&quot;:0}}"');
+    expect(r.server).toContain('"format": _$f(_$hd(x => x), _$i)'); // in a hole: made while rendering
+    expect(r.clients.find((c) => c.name === 'Page').code).toContain('"format": _$f(_$hd(x => x), _$B.r.getAttribute("m-i"))');
+  });
+
+  it.each([
+    ['route GET / { return <main><P onpick={(x) => x} /></main>; }\nfunction P() { return <p/>; }', 'a function prop (onpick) goes to a component inside a component'],
+    ['export function A() { var n = 0; return <div onclick={() => n++}><P onpick="x" /></div>; }\nfunction P() { return <p/>; }', 'onpick takes a function'],
+  ])('%s', (src, message) => {
+    expect(errorOf(src)).toContain(message);
+  });
+});
+
 describe('goal dev', () => {
   const SRC = `
     export function C({ start }) {
@@ -335,7 +457,7 @@ describe('goal dev', () => {
     const { server } = await load(SRC, { dev: true });
     const html = (hmr) => {
       const ctx = _$ctx();
-      ctx.hmr = hmr;
+      ctx.k = (c, i) => (hmr?.[i]?.c === c ? hmr[i].s : null); // as app.js does for a live update
       return render(server.C, { start: 1 }, ctx).html;
     };
     expect(html(undefined)).toContain('m-s="{&quot;n&quot;:1}"><!--0.0-->1<!--/-->');
@@ -759,9 +881,9 @@ describe('errors', () => {
     ['function A() { var a = 1; return <p onclick={() => { [a] = [2]; }}/>; }', 'not by destructuring'],
     ['function A() { let a = 1; return <p onclick={() => { a = 2; }}/>; }', 'Declare it with `var`'],
     ['function A() { return <x.y/>; }', 'plain tag names'],
-    ['function A() { return <B/>; }', 'not as its root'],
-    ['function A() { var n = 0; return <p>{n && <B/>}</p>; }', 'not inside {...}'],
-    ['const x = <B/>;', '<B> goes in a route or in the fixed part of a component'],
+    ['function A() { return <B/>; }', "a component's root is an element"],
+    ['function A() { var xs = []; return <ul>{xs.map((x) => <li key={x}><B /></li>)}</ul>; }', "<B> can't go inside a keyed list's row yet"],
+    ['const x = <B/>;', '<B> goes in a route or in a component'],
     ['function A() { return <p {...x}/>; }', 'spread attributes'],
     ['function A() { return <p a:b="1"/>; }', 'namespaced attributes'],
     ['function A() { return <p onClick={() => 1}/>; }', 'write onclick, the HTML name, not onClick'],
@@ -782,12 +904,9 @@ describe('errors', () => {
     ['const f = <form method="post"></form>;', 'a form that sends data goes in a route'],
     ['function A() { return <br>x</br>; }', "<br> can't have children"],
     ['function A() { return <p>{...xs}</p>; }', '1:27: Unexpected token'],
-    ['function A() { return <p><B>hi</B></p>; }', 'passing children to <B>'],
     ['function A() { return <p><B {...x}/></p>; }', 'spread props'],
     ['function A() { return <p><B a:b="1"/></p>; }', 'namespaced props'],
-    ['function A() { return <p><B onpick={() => 1}/></p>; }', 'function prop (onpick)'],
     ['function A() { return <p><B t=<b/>/></p>; }', 'a prop value is "text" or {expression}'],
-    ['function A() { var n = 0; return <p><B n={n}/></p>; }', 'prop `n` depends on state'],
     ['route GET / { var a = 1; return <p/>; }', '`a`: state (var) belongs in a component'],
     ['route GET /{id} { const id = 2; return <p/>; }', "`id` is already the route's path parameter {id}"],
   ])('%s', (src, message) => {

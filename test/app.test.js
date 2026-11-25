@@ -38,6 +38,7 @@ const routes = [
     },
   },
   { method: 'GET', path: '/kept', handler: (r, x) => x.json(x.ctx.hmr ?? null) },
+  { method: 'GET', path: '/kept-k', handler: (r, x) => x.json([x.ctx.k('/c/A.js', 0), x.ctx.k('/c/B.js', 0), x.ctx.k('/c/A.js', 1)]) },
   {
     method: 'POST',
     path: '/upload',
@@ -196,6 +197,8 @@ describe('routes', () => {
     expect(await kept(dev, 'null')).toEqual({});
     expect(await kept(dev)).toBe(null);
     expect(await kept(url, '{"0":{}}')).toBe(null); // not in dev
+    const k = await fetch(dev + '/kept-k', { headers: { 'x-goal-hmr': '{"0":{"c":"/c/A.js","s":{"n":2}}}' } });
+    expect(await k.json()).toEqual([{ n: 2 }, null, null]); // by instance and component
     expect(await (await fetch(dev + '/doc')).text()).toContain('<meta name="goal-events" content="[&quot;click&quot;]"><script type="module" nonce="');
     expect(await (await fetch(url + '/doc')).text()).not.toContain('goal-events');
   });

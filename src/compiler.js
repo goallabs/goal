@@ -36,7 +36,7 @@ import { URL_ATTRS, _$u } from './rt.js';
 export { GoalError };
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
-const HELPERS = ['_$m', '_$h', '_$a', '_$e', '_$u', '_$pa', '_$ctx', '_$sf', '_$call', '_$hl', '_$L'];
+const HELPERS = ['_$m', '_$h', '_$a', '_$e', '_$u', '_$pa', '_$ctx', '_$sf', '_$call', '_$hl', '_$L', '_$B', '_$f'];
 const ROUTE_HELPERS = ['redirect', 'json', 'notFound', 'cookie'];
 const FORM_METHODS = ['get', 'post', 'put', 'patch', 'delete'];
 
@@ -107,10 +107,12 @@ export function compile(source, opts = {}) {
   const server = transform(ast, 'server', o, d.routes);
   const client = transform(ast, 'client', o, d.routes);
   const clients = [];
+  const keys = new Map(); // the props each component's browser code reads: the page gets those
   for (const c of client.components.filter((c) => c.interactive)) {
-    const { code, keys } = clientModule(client.program, c, o);
-    clients.push({ name: c.name, code });
-    server.components.find((s) => s.name === c.name).keys.elements.push(...keys.map((k) => t.stringLiteral(k)));
+    const m = clientModule(client.program, c, o);
+    clients.push({ name: c.name, code: m.code });
+    keys.set(c.name, m.keys);
+    server.components.find((s) => s.name === c.name).keys.elements.push(...m.keys.map((k) => t.stringLiteral(k)));
   }
 
   const body = server.program;
@@ -142,6 +144,7 @@ export function compile(source, opts = {}) {
     );
   return {
     server: emit(body.node),
+    render: renderModule(ast, o, d.routes, keys),
     clients,
     components: server.components.map(({ name, interactive, events }) => ({ name, interactive, events })),
     routes: d.routes.map(({ method, path }) => ({ method, path })),
@@ -314,7 +317,7 @@ function component(fn, program, mode, o) {
   const events = [...cx.events];
   const param = fn.node.params[0];
   const keys = t.arrayExpression([]); // the props the browser needs, filled in from the client module
-  const info = { name, interactive, events, state, binds: cx.binds, hs: cx.hs, param, keys, dyn: cx.dyn, offset: cx.offset, tpls: cx.tpls, cache: cx.cache };
+  const info = { name, interactive, events, state, binds: cx.binds, hs: cx.hs, param, keys, dyn: cx.dyn, offset: cx.offset, tpls: cx.tpls, cache: cx.cache, b: !!cx.b };
   program.pushContainer('body', cx.tpls);
 
   if (mode === 'server') {
@@ -324,7 +327,7 @@ function component(fn, program, mode, o) {
     const pre = [];
     if (param) pre.push(t.variableDeclaration('let', [t.variableDeclarator(patternOf(param), pId)]));
     pre.push(t.variableDeclaration('const', [t.variableDeclarator(cx.iId, t.updateExpression('++', t.memberExpression(cx.cId, t.identifier('i'))))]));
-    if (o.dev && interactive && state.length) pre.push(keptState(fn, cx, o.chunk(name).split('?')[0], state));
+    if ((o.dev || o.render) && interactive && state.length) pre.push(keptState(fn, cx, o.chunk(name).split('?')[0], state));
     if (events.length) pre.push(t.expressionStatement(t.callExpression(t.memberExpression(cx.cId, t.identifier('e')), [t.valueToNode(events)])));
     if (cx.dyn) {
       // The server only numbers the handlers made while rendering; the browser keeps them.
@@ -344,13 +347,13 @@ function component(fn, program, mode, o) {
 const patternOf = (param) => (t.isAssignmentPattern(param) ? param.left : param);
 
 /**
- * goal dev: a live update renders the page again with the state each component had in the browser
- * (ctx.hmr, by instance number). When this instance is the same component, its vars start from that
- * state instead of their initial values; a var it didn't have starts as written.
+ * A component rendered again keeps its state: in goal dev, for a live update (the page sends it, see
+ * app.js), and in the browser, where a parent renders it again (the loader finds it, see _$B). ctx.k
+ * gives the state the component in this place had; its vars start from it instead of their initial
+ * values, and a var it didn't have starts as written.
  */
 function keptState(fn, cx, chunk, state) {
   const kept = t.identifier('_$o');
-  const at = t.memberExpression(t.memberExpression(cx.cId, t.identifier('hmr')), cx.iId, true);
   for (const name of state) {
     const d = fn.scope.getBinding(name).path.node;
     d.init = t.conditionalExpression(
@@ -359,11 +362,9 @@ function keptState(fn, cx, chunk, state) {
       d.init ?? t.identifier('undefined'),
     );
   }
-  // _$c.hmr?.[_$i]?.c === chunk ? _$c.hmr[_$i].s : null
-  const cOf = t.optionalMemberExpression(t.optionalMemberExpression(t.memberExpression(cx.cId, t.identifier('hmr')), cx.iId, true, true), t.identifier('c'), false, true);
-  return t.variableDeclaration('const', [
-    t.variableDeclarator(kept, t.conditionalExpression(t.binaryExpression('===', cOf, t.stringLiteral(chunk)), t.memberExpression(at, t.identifier('s')), t.nullLiteral())),
-  ]);
+  // const _$o = _$c.k?.(chunk, _$i);
+  const call = t.optionalCallExpression(t.memberExpression(cx.cId, t.identifier('k')), [t.stringLiteral(chunk), cx.iId], true);
+  return t.variableDeclaration('const', [t.variableDeclarator(kept, call)]);
 }
 
 const ROOT = Symbol('root attributes');
@@ -474,11 +475,14 @@ function element(p, cx, top, root, row) {
   if (!t.isJSXIdentifier(nameNode)) fail('use plain tag names and component names, like <div> or <Counter>', nameNode);
   const tag = nameNode.name;
   if (/^[A-Z]/.test(tag)) {
-    if (cx.kind === 'route' || (cx.kind === 'component' && top && !root)) return componentCall(p, cx, tag);
+    if (cx.kind === 'route') return componentCall(p, cx, tag, false);
+    if (cx.kind === 'component' && !root && !row && !cx.inRow) return componentCall(p, cx, tag, top);
     fail(
-      cx.kind === 'component'
-        ? `place <${tag}> in the fixed part of a component: not as its root, not inside {...}`
-        : `<${tag}> goes in a route or in the fixed part of a component`,
+      cx.kind !== 'component'
+        ? `<${tag}> goes in a route or in a component`
+        : root
+          ? `a component's root is an element: put <${tag}> inside one`
+          : `<${tag}> can't go inside a keyed list's row yet`,
       p.node,
     );
   }
@@ -518,10 +522,10 @@ function element(p, cx, top, root, row) {
         ons.push([`${ev}:r${row.hs.length}`]); // the row's own handler, found from the row at run time
         row.hs.push(v.node.expression);
       } else if (top) {
-        ons.push([`${ev}:${cx.hs.length}`]);
+        ons.push([`${ev}:${cx.hs.length}`, ...owner(cx)]);
         cx.hs.push(v.node.expression);
       } else {
-        ons.push([`${ev}:`, t.callExpression(t.identifier('_$hd'), [v.node.expression])]);
+        ons.push([`${ev}:`, t.callExpression(t.identifier('_$hd'), [v.node.expression]), ...owner(cx)]);
         cx.dyn++;
       }
       continue;
@@ -628,13 +632,41 @@ const changes = (e, cx) => uses(e, cx.scope, cx.reactive) || uses(e, cx.scope, c
 /** A `{...}` hole: in the fixed part of a component, one that can change becomes a binding between markers. */
 function hole(c, cx, top, parts) {
   const dyn = cx.dyn;
+  cx.at = cx.binds?.length; // in a component, the binding it becomes: components rendered in it look for theirs there
   inner(c.get('expression'), cx);
   const ex = t.callExpression(t.identifier('_$h'), [c.node.expression]);
   if (top && (cx.dyn > dyn || changes(c.get('expression'), cx))) {
+    if (readsChildren(c.get('expression'), cx))
+      fail('put {children} in the fixed part of the component: they belong to its parent, so a {...} hole that renders again can\'t hold them', c.node);
     const k = cx.binds.length;
     cx.binds.push({ k: [0, k], e: ex });
     parts.push('<!--', cx.iId, `.${k}-->`, ex, '<!--/-->');
   } else parts.push(ex);
+}
+
+/** In children's markup, a handler names the component it belongs to: m-on="click:0@<instance>". */
+const owner = (cx, always) => {
+  if (!cx.own && !always) return [];
+  if (cx.mode !== 'client') return ['@', cx.iId];
+  cx.b = true; // rendered in the browser: the instance running now (rt.js)
+  return ['@', t.callExpression(t.memberExpression(t.memberExpression(t.identifier('_$B'), t.identifier('r')), t.identifier('getAttribute')), [t.stringLiteral('m-i')])];
+};
+
+/** Does the code at `path` read the component's children prop? */
+function readsChildren(path, cx) {
+  let hit = false;
+  const check = (p) => {
+    const b = p.scope.getBinding(p.node.name);
+    if (b?.kind !== 'param' || b.scope !== cx.scope) return;
+    if (p.node.name === 'children' || (p.parentPath.isMemberExpression({ object: p.node, computed: false }) && p.parent.property.name === 'children')) hit = true;
+  };
+  if (path.isIdentifier()) check(path);
+  path.traverse({
+    Identifier(p) {
+      if (p.isReferencedIdentifier()) check(p);
+    },
+  });
+  return hit;
 }
 
 const isMap = (e) => e.isCallExpression() && t.isMemberExpression(e.node.callee, { computed: false }) && e.node.callee.property.name === 'map';
@@ -784,28 +816,71 @@ function markup(p, cx) {
   return t.callExpression(t.identifier('_$m'), [template(parts)]);
 }
 
-function componentCall(p, cx, tag) {
-  if (p.node.children.some((c) => !t.isJSXText(c) || cleanText(c.value) !== ''))
-    fail(`passing children to <${tag}> comes in the next milestone`, p.node);
+/**
+ * A component in markup. On the server it renders there; in a {...} hole the browser renders it too,
+ * with the browser context (_$B, from the file's render module). In the fixed part of a component,
+ * one whose props read state becomes a hole of its own, rendered again when they change.
+ */
+function componentCall(p, cx, tag, top) {
   const props = [];
+  let live = false; // a prop reads state
   for (const a of p.get('openingElement.attributes')) {
     if (a.isJSXSpreadAttribute()) fail('spread props are not supported yet', a.node);
     if (!t.isJSXIdentifier(a.node.name)) fail('namespaced props are not supported', a.node);
     const name = a.node.name.name;
-    if (/^on/i.test(name)) fail(`a component can't take a function prop (${name}) yet`, a.node);
     const v = a.get('value');
+    // A function prop: a handler of this component, which the child calls from its own handlers.
+    if (/^on/.test(name) || (v.isJSXExpressionContainer() && v.get('expression').isFunction())) {
+      if (!cx.hs) fail(`a function prop (${name}) goes to a component inside a component, where it runs as a handler`, a.node);
+      if (!v.isJSXExpressionContainer()) fail(`${name} takes a function: ${name}={(x) => ...}`, a.node);
+      let h;
+      if (top) {
+        h = t.numericLiteral(cx.hs.length);
+        cx.hs.push(v.node.expression);
+      } else {
+        h = t.callExpression(t.identifier('_$hd'), [v.node.expression]);
+        cx.dyn++;
+      }
+      props.push(t.objectProperty(t.stringLiteral(name), t.callExpression(t.identifier('_$f'), [h, owner(cx, true)[1]])));
+      continue;
+    }
     let value;
     if (!v.node) value = t.booleanLiteral(true);
     else if (v.isStringLiteral()) value = v.node;
     else if (v.isJSXExpressionContainer()) {
-      if (uses(v.get('expression'), cx.scope, cx.reactive))
-        fail(`prop \`${name}\` depends on state; props that change come in the next milestone`, a.node);
+      if (top && changes(v.get('expression'), cx)) live = true;
       inner(v.get('expression'), cx);
       value = v.node.expression;
     } else fail('a prop value is "text" or {expression}', a.node);
     props.push(t.objectProperty(t.stringLiteral(name), value));
   }
-  return [t.callExpression(t.identifier(tag), [t.objectExpression(props), cx.cId])];
+  // Children: markup of this component, given to the child as `children`. Their bindings and
+  // handlers are this component's (owner), wherever the child puts them.
+  if (p.node.children.some((c) => !t.isJSXText(c) || cleanText(c.value) !== '')) {
+    if (cx.kind === 'route') {
+      const parts = [];
+      children(p, cx, false, parts);
+      props.push(t.objectProperty(t.stringLiteral('children'), t.callExpression(t.identifier('_$m'), [template(parts)])));
+    } else {
+      const parts = [];
+      const was = cx.own;
+      cx.own = true;
+      children(p, cx, top && !live, parts);
+      cx.own = was;
+      props.push(t.objectProperty(t.stringLiteral('children'), t.callExpression(t.identifier('_$m'), [template(parts)])));
+    }
+  }
+  // In the browser it renders in a hole: this one's own, or the hole it is in.
+  let ctx = cx.cId;
+  if (cx.mode === 'client' && (live || !top)) {
+    cx.b = true;
+    ctx = t.callExpression(t.memberExpression(t.identifier('_$B'), t.identifier('h')), [t.numericLiteral(live ? cx.binds.length : cx.at)]);
+  }
+  const call = t.callExpression(t.identifier(tag), [t.objectExpression(props), ctx]);
+  if (!live) return [call];
+  const k = cx.binds.length;
+  cx.binds.push({ k: [0, k], e: call }); // the render's HTML, as the hole's value
+  return ['<!--', cx.iId, `.${k}-->`, call, '<!--/-->'];
 }
 
 // Text in markup, with whitespace cleaned the way React does it.
@@ -854,16 +929,48 @@ function importHelpers(rt) {
   return t.importDeclaration(HELPERS.map((h) => t.importSpecifier(t.identifier(h), t.identifier(h))), t.stringLiteral(rt));
 }
 
+/** Components imported from a .goal file render in the browser from its render module (see renderModule). */
+function renderImport(s) {
+  if (t.isImportDeclaration(s) && s.source.value.endsWith('.goal') && s.specifiers.every((x) => /^[A-Z]/.test(x.local.name))) s.source = t.stringLiteral(`goal-render:${s.source.value}`);
+  return s;
+}
+
+/**
+ * A file's components as the browser renders them, inside a {...} hole or with props that change:
+ * the server's templates, each component keeping the state of the one in its place (keptState).
+ * Routes and server functions stay on the server, and so does whatever the components don't use.
+ */
+function renderModule(ast, o, routes, keys) {
+  const r = transform(ast, 'server', { ...o, render: true }, routes);
+  for (const c of r.components) c.keys.elements.push(...(keys.get(c.name) ?? []).map((k) => t.stringLiteral(k)));
+  const names = new Set(r.components.map((c) => c.name));
+  const server = new Set([...routes.map((x) => x.name), ...o.own]);
+  const body = [importHelpers(o.rt)];
+  for (const s of r.program.node.body) {
+    const d = t.isExportNamedDeclaration(s) || t.isExportDefaultDeclaration(s) ? s.declaration : s;
+    if (t.isFunctionDeclaration(d) && server.has(d.id.name)) continue;
+    if (t.isFunctionDeclaration(d) && names.has(d.id.name)) body.push(t.exportNamedDeclaration(t.cloneNode(d, true)));
+    else if (t.isStatement(d)) body.push(renderImport(t.cloneNode(d, true)));
+  }
+  const file = t.file(t.program(body));
+  prune(programPath(file), names);
+  return emit(file);
+}
+
 function clientModule(program, info, o) {
   const body = [importHelpers(o.rt)];
+  const others = []; // the file's other components: it renders them from the file's render module
   let comp;
   for (const s of program.node.body) {
     const d = t.isExportNamedDeclaration(s) || t.isExportDefaultDeclaration(s) ? s.declaration : s;
     if (t.isFunctionDeclaration(d) && (/^[A-Z]/.test(d.id.name) || o.own.has(d.id.name))) {
       if (d.id.name === info.name) comp = d;
-    } else if (t.isStatement(d) && !/^_\$t\d/.test(d.declarations?.[0].id.name)) body.push(t.cloneNode(d, true)); // `export { a }` and `export default expr` are dropped
+      else if (!o.own.has(d.id.name)) others.push(d.id.name);
+    } else if (t.isStatement(d) && !/^_\$t\d/.test(d.declarations?.[0].id.name)) body.push(renderImport(t.cloneNode(d, true))); // `export { a }` and `export default expr` are dropped
   }
   body.push(...info.tpls.map((x) => t.cloneNode(x, true)), ...clientComponent(comp, info)); // row templates before _$k reads them
+  if (others.length) body.splice(1, 0, t.importDeclaration(others.map((n) => t.importSpecifier(t.identifier(n), t.identifier(n))), t.stringLiteral(`goal-render:./${o.file.split('/').at(-1)}`)));
+  if (info.b) body.push(t.exportNamedDeclaration(null, [t.exportSpecifier(t.identifier('_$B'), t.identifier('_$B'))], t.stringLiteral(o.rt))); // the loader gives renders the state they keep
   if (info.binds.some((b) => b.k[0] === 0)) body.push(t.exportNamedDeclaration(null, [t.exportSpecifier(t.identifier('_$hm'), t.identifier('_$hm'))], t.stringLiteral(o.rt)));
   if (info.binds.some((b) => b.k[0] === 2))
     body.push(
@@ -963,6 +1070,8 @@ const pure = (n) =>
   (t.isTemplateLiteral(n) ? n.expressions.every(pure) : t.isLiteral(n)) ||
   (t.isMemberExpression(n) && pure(n.object) && (!n.computed || pure(n.property))) ||
   ((t.isBinaryExpression(n) || t.isLogicalExpression(n)) && pure(n.left) && pure(n.right)) ||
+  (t.isArrayExpression(n) && n.elements.every(pure)) ||
+  (t.isObjectExpression(n) && n.properties.every((p) => t.isObjectProperty(p) && !p.computed && pure(p.value))) ||
   (t.isConditionalExpression(n) && pure(n.test) && pure(n.consequent) && pure(n.alternate));
 
 /** Which props the browser code reads: only those are written into the page. */

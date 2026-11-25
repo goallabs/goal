@@ -21,9 +21,11 @@ export async function load(src, opts) {
   const dir = join(TMP, `m${process.pid}-${n++}`);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'server.mjs'), r.server);
+  writeFileSync(join(dir, 'render.mjs'), r.render); // the file's components, as the browser renders them
+  const render = JSON.stringify(pathToFileURL(join(dir, 'render.mjs')).href);
   const chunks = {};
   for (const c of r.clients) {
-    writeFileSync(join(dir, `${c.name}.mjs`), c.code);
+    writeFileSync(join(dir, `${c.name}.mjs`), c.code.replace(/"goal-render:[^"]+"/g, render));
     chunks[`/c/${c.name}.js`] = pathToFileURL(join(dir, `${c.name}.mjs`)).href;
   }
   const server = await import(pathToFileURL(join(dir, 'server.mjs')).href);

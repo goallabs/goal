@@ -86,6 +86,18 @@ describe('build', () => {
     expect(html).toMatch(new RegExp(`style="height:${(100000 - 24) * 32}px"`));
   });
 
+  it('bundles the render modules a chunk renders components from, across files', async () => {
+    const dir = app({
+      'ui/Counter.goal': 'export function Counter({ start }) { var n = start; return <b onclick={() => n++}>{n}</b>; }',
+      'ui/Panel.goal': "import { Counter } from './Counter.goal';\nexport function Panel() { var open = true; return <div onclick={() => (open = !open)}>{if (open) <Counter start={2} />}</div>; }",
+      'app.goal': "import { Panel } from './ui/Panel.goal';\nroute GET / { return <main><Panel /></main>; }",
+    });
+    await build(dir);
+    const panel = readFileSync(join(dir, 'dist/client/c/ui/Panel.Panel.js'), 'utf8');
+    expect(panel).toContain('m-c="/c/ui/Counter.Counter.js'); // Counter's template, rendered in the browser
+    expect(panel).not.toContain('goal-render:');
+  });
+
   it('copies server .js and .json files, and leaves out goal.config.js', async () => {
     const dir = app({
       'app.goal': "import { hi } from './lib/hi.js';\nimport data from './data.json' with { type: 'json' };\nroute GET / { return <p>{hi()}{data.n}</p>; }",

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { _$e, _$m, _$h, _$a, _$u, _$pa, _$ctx, Html } from '../src/rt.js';
+import { _$e, _$m, _$h, _$a, _$u, _$pa, _$ctx, _$f, Html } from '../src/rt.js';
 
 describe('rt helpers', () => {
   it('escapes text and attributes', () => {
@@ -47,5 +47,12 @@ describe('rt helpers', () => {
     c.e(['click']);
     expect([...c.ev]).toEqual(['click', 'input']);
     expect(_$ctx('tok').t).toBe('tok');
+  });
+});
+
+describe('function props', () => {
+  it('do nothing where they are made, and go to the page as the handler and instance they name', () => {
+    expect(_$f(1, 2)()).toBe(undefined);
+    expect(JSON.stringify({ onpick: _$f(1, 2) })).toBe('{"onpick":{"$h":1,"$i":2}}');
   });
 });

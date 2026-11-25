@@ -9,6 +9,7 @@ async function mount(src, name, props, { defaultLoad = false } = {}) {
   const t = await load(src);
   const { html, events } = render(t.server[name], props);
   const d = document.implementation.createHTMLDocument('t');
+  d.head.innerHTML = '<meta name="goal-csrf" content="tok">';
   d.body.innerHTML = html;
   const loads = [];
   if (defaultLoad) {
@@ -285,5 +286,117 @@ describe('server function calls', () => {
     await expect(_$sf('/_m/a/b', [])).rejects.toThrow('server function /_m/a/b failed: 403');
     document.head.innerHTML = '';
     vi.unstubAllGlobals();
+  });
+});
+
+describe('components rendered in the browser', () => {
+  const PANEL = `
+    export function Panel() {
+      var open = true;
+      var n = 1;
+      return (
+        <div>
+          <button id="toggle" onclick={() => (open = !open)}>t</button>
+          <button id="more" onclick={() => n++}>m</button>
+          {if (open) <div class="wrap"><Counter start={n} id="a" /></div> else ['closed ', <Field />]}
+          <Counter start={n} id="b" />
+          <Show value={n} />
+        </div>
+      );
+    }
+    export function Counter({ start, id }) {
+      var count = start;
+      return <p id={id}>{start}/<b>{count}</b><button onclick={() => count++}>+</button></p>;
+    }
+    function Show({ value }) { return <span id="show">{value}</span>; }
+    export function Field() {
+      var text = '';
+      return <form method="post" id="f"><input oninput={(e) => (text = e.target.value)} /><output>{text}</output></form>;
+    }`;
+
+  it('keep their state when their parent renders them again, take new props, and start fresh where new', async () => {
+    const { d, $, fire } = await mount(PANEL, 'Panel');
+    const counter = (id) => $(`#${id}`).textContent.replace('+', '');
+    fire('#a button', 'click');
+    await vi.waitFor(() => expect(counter('a')).toBe('1/2'));
+    fire('#more', 'click');
+    await vi.waitFor(() => expect($('#show').textContent).toBe('2'));
+    expect([counter('a'), counter('b')]).toEqual(['2/2', '2/1']); // new props, the state they had
+    fire('#b button', 'click');
+    await vi.waitFor(() => expect(counter('b')).toBe('2/2'));
+
+    fire('#toggle', 'click'); // a component the page didn't have, with an event the page didn't listen for
+    await vi.waitFor(() => expect($('#f')).not.toBe(null));
+    expect($('#a')).toBe(null);
+    expect($('#f input[name="_csrf"]').value).toBe('tok');
+    const input = $('#f input:not([name])');
+    input.value = 'hi';
+    fire(input, 'input');
+    await vi.waitFor(() => expect($('#f output').textContent).toBe('hi'));
+
+    fire('#toggle', 'click');
+    await vi.waitFor(() => expect($('#a')).not.toBe(null));
+    expect(counter('a')).toBe('2/2'); // a new one, from its props
+    expect(d.querySelectorAll('[m-c]').length).toBe(3);
+  });
+});
+
+describe('children', () => {
+  it("run the parent's handlers and show its state, inside the child, rendered there or in the browser", async () => {
+    const { $, fire } = await mount(
+      `export function Page() {
+        var n = 0;
+        var show = false;
+        return (
+          <main>
+            <Card><p id="n">{n}</p><button id="inc" onclick={() => n++}>+</button></Card>
+            <button id="show" onclick={() => (show = !show)}>show</button>
+            {if (show) <Card><button id="dec" onclick={() => n--}>-</button></Card>}
+          </main>
+        );
+      }
+      export function Card({ children }) {
+        var open = 0;
+        return <section onclick={() => open++}>{children}<i>{open}</i></section>;
+      }`,
+      'Page',
+    );
+    fire('#inc', 'click');
+    await vi.waitFor(() => expect($('#n').textContent).toBe('1'));
+    await vi.waitFor(() => expect($('section i').textContent).toBe('1')); // the click reached the Card too
+    fire('#show', 'click');
+    await vi.waitFor(() => expect($('#dec')).not.toBe(null));
+    fire('#dec', 'click');
+    await vi.waitFor(() => expect($('#n').textContent).toBe('0'));
+  });
+});
+
+describe('function props', () => {
+  it('run the handler in the component that gave it, fixed or rendered in the browser', async () => {
+    const { $, fire } = await mount(
+      `export function Page() {
+        var picked = 'none';
+        var open = false;
+        return (
+          <main>
+            <Picker onpick={(x) => (picked = 'fixed ' + x)} id="fixed" />
+            <button id="open" onclick={() => (open = !open)}>open</button>
+            {if (open) <Picker onpick={(x) => (picked = 'later ' + x)} id="later" />}
+            <p id="picked">{picked}</p>
+          </main>
+        );
+      }
+      export function Picker({ onpick, id }) {
+        var n = 0;
+        return <button id={id} onclick={() => onpick(++n)}>pick</button>;
+      }`,
+      'Page',
+    );
+    fire('#fixed', 'click');
+    await vi.waitFor(() => expect($('#picked').textContent).toBe('fixed 1'));
+    fire('#open', 'click');
+    await vi.waitFor(() => expect($('#later')).not.toBe(null));
+    fire('#later', 'click');
+    await vi.waitFor(() => expect($('#picked').textContent).toBe('later 1'));
   });
 });

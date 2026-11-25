@@ -254,7 +254,11 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
       if (m.allow) return send(405, HTML, errorPage('Method not allowed'), { allow: m.allow.join(', ') });
 
       const ctx = _$ctx(token);
-      if (dev && req.headers['x-goal-hmr']) ctx.hmr = keptState(req.headers['x-goal-hmr']); // goal dev: a live update (see hmr.js)
+      if (dev && req.headers['x-goal-hmr']) {
+        // goal dev: a live update (see hmr.js). Each component gets the state the page kept for it.
+        const kept = (ctx.hmr = keptState(req.headers['x-goal-hmr']));
+        ctx.k = (chunk, i) => (kept[i]?.c === chunk ? kept[i].s : null);
+      }
       const request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, files, json: body };
       const cookie = (name, value, opts) => setCookies.push(serializeCookie(name, value, opts));
       const out = await m.route.handler(request, { ctx, redirect, json, notFound, cookie });

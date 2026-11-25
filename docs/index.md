@@ -58,6 +58,5 @@ export function Counter({ start }) {
 
 goal.js is young, and these are not supported yet:
 
-- props that change, children passed to components, function props, and components inside `{...}`
-  holes of a component (in routes they work anywhere);
+- components inside a keyed list's row;
 - goal.js's own type system and `goal check`, and a Vite plugin.
