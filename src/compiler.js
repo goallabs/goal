@@ -500,12 +500,12 @@ function element(p, cx, top, root, row) {
         row.key = v.node.expression;
         continue;
       }
-      // Not a row the browser patches by key: fine for a list that never changes, which renders once.
+      // A list in markup that is patched as a whole: inside an element in an {if}, or in another list's
+      // row. Its rows carry their key (m-k), and the patch finds each row by it (rt.js). A list that
+      // never changes renders once, and needs none.
       const list = mapOf(p);
       if (!list) fail('key goes on the outer element of a list row: items.map((x) => <li key={x.id}>...</li>)', a.node);
-      if (cx.inRow) fail("a keyed list can't go inside another list's row yet: drop this key, and the inner list is made again with its row", a.node);
-      if (cx.kind === 'component' && changes(list, cx))
-        fail('a keyed list that changes goes straight in the markup, or straight in an {if} or a ternary: <ul>{items.map((x) => <li key={x.id}>...</li>)}</ul>', a.node);
+      if (cx.inRow || (cx.kind === 'component' && changes(list, cx))) parts.push(t.callExpression(t.identifier('_$a'), [t.stringLiteral('m-k'), v.node.expression]));
       continue;
     }
     if (/^on/i.test(name)) {
@@ -864,6 +864,7 @@ function clientModule(program, info, o) {
     } else if (t.isStatement(d) && !/^_\$t\d/.test(d.declarations?.[0].id.name)) body.push(t.cloneNode(d, true)); // `export { a }` and `export default expr` are dropped
   }
   body.push(...info.tpls.map((x) => t.cloneNode(x, true)), ...clientComponent(comp, info)); // row templates before _$k reads them
+  if (info.binds.some((b) => b.k[0] === 0)) body.push(t.exportNamedDeclaration(null, [t.exportSpecifier(t.identifier('_$hm'), t.identifier('_$hm'))], t.stringLiteral(o.rt)));
   if (info.binds.some((b) => b.k[0] === 2))
     body.push(
       t.exportNamedDeclaration(null, [t.exportSpecifier(t.identifier('_$lp'), t.identifier('_$lp'))], t.stringLiteral(o.keyed)),

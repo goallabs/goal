@@ -29,7 +29,7 @@ const MAX = COUNT * ROW - VIEW;
 const args = process.argv.slice(2);
 const arg = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 const QUICK = args.includes('--quick');
-const CYCLES = Number(arg('--cycles') ?? (QUICK ? 3 : 8));
+const CYCLES = Number(arg('--cycles') ?? 8); // the heap warms up over the first few: the verdict reads the second half
 const SIZES = QUICK ? { steps: 100, jumps: 100, updates: 30 } : { steps: 600, jumps: 400, updates: 150 };
 
 // ---------------------------------------------------------------------------------------------

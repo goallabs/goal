@@ -99,12 +99,18 @@ describe('keyed lists', () => {
     expect(l.labels()).toEqual(['x', 'plain']);
   });
 
-  it('makes a changed row again when its values have no fixed place', () => {
+  it('puts the new markup into a changed row whose values have no fixed place, keeping its nodes', () => {
     const l = setup([row(1), row(2)], null);
     const [n1, n2] = l.lis();
+    const box = n1.querySelector('input');
     l.to([row(1, 'new'), row(2)]);
     expect(l.labels()).toEqual(['new', 'r2']);
-    expect(l.lis()[0]).not.toBe(n1);
-    expect(l.lis()[1]).toBe(n2);
+    expect(l.lis()).toEqual([n1, n2]);
+    expect(n1.querySelector('input')).toBe(box);
+    l.to([row(2), row(1, 'moved')]); // moved and changed
+    expect(l.labels()).toEqual(['r2', 'moved']);
+    expect(l.lis()).toEqual([n2, n1]);
+    l.to([row(2), row(1, 'moved'), row(3)]); // a new row, made from the template
+    expect(l.labels()).toEqual(['r2', 'moved', 'r3']);
   });
 });

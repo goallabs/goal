@@ -39,6 +39,12 @@ const routes = [
   },
   { method: 'GET', path: '/kept', handler: (r, x) => x.json(x.ctx.hmr ?? null) },
   {
+    method: 'POST',
+    path: '/upload',
+    handler: (r, x) =>
+      x.json({ form: r.form, files: Object.fromEntries(Object.entries(r.files).map(([k, fs]) => [k, fs.map((f) => ({ name: f.name, type: f.type, size: f.size, text: f.data.toString() }))])) }),
+  },
+  {
     method: 'GET',
     path: '/cookie',
     handler: (r, x) => {
@@ -244,6 +250,27 @@ describe('requests that change things', () => {
   it('take PUT, PATCH and DELETE from a form, but no other method', async () => {
     expect(await (await post('/items', `_method=put&_csrf=${TOKEN}&x=2`)).json()).toEqual({ method: 'PUT', form: { x: '2' } });
     expect((await (await post('/items', `_method=get&_csrf=${TOKEN}`)).json()).method).toBe('POST');
+  });
+
+  it('read multipart forms: the fields in form, the files in files, and refuse a broken one', async () => {
+    const fd = new FormData();
+    fd.append('_csrf', TOKEN);
+    fd.append('title', 'Trip');
+    fd.append('photo', new File(['abc'], 'a.txt', { type: 'text/plain' }));
+    fd.append('photo', new File(['de'], 'b.png', { type: 'image/png' }));
+    fd.append('empty', new File([], '')); // a file input with nothing chosen: an empty field
+    const res = await fetch(url + '/upload', { method: 'POST', body: fd, headers: { cookie: COOKIE } });
+    expect(await res.json()).toEqual({
+      form: { title: 'Trip', empty: '' },
+      files: {
+        photo: [
+          { name: 'a.txt', type: 'text/plain', size: 3, text: 'abc' },
+          { name: 'b.png', type: 'image/png', size: 2, text: 'de' },
+        ],
+      },
+    });
+    const broken = await fetch(url + '/upload', { method: 'POST', body: 'x', headers: { cookie: COOKIE, 'x-csrf-token': TOKEN, 'content-type': 'multipart/form-data; boundary=zz' } });
+    expect(broken.status).toBe(400);
   });
 
   it('read JSON, refuse other bodies, and limit their size', async () => {

@@ -92,10 +92,7 @@ function patch(d, r, m, a, b) {
       while ((c = w.nextNode()) && c.data !== `${i}.${n}`);
       r.$m[n] = c;
     }
-    if (kind) return m._$lp(d, c, a[j], v, name, parts); // a keyed list
-    for (let x = c.nextSibling; x.nodeType !== 8 || x.data !== '/'; x = c.nextSibling) x.remove();
-    const tpl = d.createElement('template');
-    tpl.innerHTML = v;
-    c.after(tpl.content);
+    if (kind) m._$lp(d, c, a[j], v, name, parts); // a keyed list (keyed.js)
+    else m._$hm(d, c, v); // a hole's markup, into the nodes there (rt.js)
   });
 }

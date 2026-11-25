@@ -420,6 +420,27 @@ describe('keyed lists', () => {
     expect(build('route GET / { return <ul>{[1].map((x) => <li key={x}>{x}</li>)}</ul>; }').server).toContain('<li>${_$h(x)}</li>');
   });
 
+  it('give the rows of a keyed list patched as a whole their key: in an element in an {if}, or in a row', async () => {
+    const src = `
+      export function A() {
+        var xs = [{ id: 1, kids: [7] }];
+        var on = 1;
+        return (
+          <div onclick={() => (on = !on)}>
+            {if (on) <ul>{xs.map((x) => { return <li key={x.id}>{x.id}</li>; })}</ul>}
+            <ol>{xs.map((x) => <li key={x.id}><i>{x.kids.map((k) => <b key={k}>{k}</b>)}</i></li>)}</ol>
+          </div>
+        );
+      }`;
+    const code = build(src).clients[0].code;
+    expect(code).toContain('<li${_$a("m-k", x.id)}>');
+    expect(code).toContain('<b${_$a("m-k", k)}>');
+    const { server } = await load(src);
+    const html = render(server.A).html;
+    expect(html).toContain('<ul><li m-k="1">1</li></ul>');
+    expect(html).toContain('<i><b m-k="7">7</b></i>');
+  });
+
   it('patch a keyed list in an {if} or a ternary by key, with the other branch next to it', async () => {
     const src = `
       export function A() {
@@ -486,8 +507,6 @@ describe('keyed lists', () => {
 
   it.each([
     ['export function A() { var xs = []; return <ul>{xs.map((x) => <li><b key={x}>{x}</b></li>)}</ul>; }', 'key goes on the outer element of a list row'],
-    ['export function A() { var xs = []; var on = 1; return <div>{if (on) <ul>{xs.map((x) => { return <li key={x}>{x}</li>; })}</ul>}</div>; }', 'a keyed list that changes goes straight in the markup'],
-    ['export function A() { var xs = []; return <ul>{xs.map((x) => <li key={x}>{x.kids.map((k) => <b key={k}>{k}</b>)}</li>)}</ul>; }', "a keyed list can't go inside another list's row"],
     ['export function A() { var xs = []; return <ul>{xs.map((x) => <li key="a">{x}</li>)}</ul>; }', 'a key is an expression'],
     ['export function A() { var xs = []; return <ul>{xs.map((x) => <li key={x}>{x && <b onclick={() => 1}>b</b>}</li>)}</ul>; }', 'put the handler on an element of the list row'],
     ['export function A() { var xs = []; return <p key={1}>{xs}</p>; }', 'key goes on the outer element of a list row'],
@@ -614,8 +633,9 @@ describe('client modules', () => {
     const a = r.clients.find((c) => c.name === 'A').code;
     expect(a).toContain("import fmt, { a } from './fmt.js';");
     expect(a).toContain('function helper()');
-    for (const gone of ['const used', 'serverOnly', './ns.js', 'Other', 'unused', 'dead', 'exportedHelper', 'const fn', 'export default fmt', 'export {'])
+    for (const gone of ['const used', 'serverOnly', './ns.js', 'Other', 'unused', 'dead', 'exportedHelper', 'const fn', 'export default fmt', 'export { helper'])
       expect(a).not.toContain(gone);
+    expect(a).toContain('export { _$hm } from'); // its holes are patched by rt.js's _$hm
     expect(a).toContain('const PURE = 1,');
     expect(a).toContain('let later;');
     expect(a).toContain('const effect = setup();');

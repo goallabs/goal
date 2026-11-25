@@ -11,7 +11,7 @@ A compiled JavaScript framework where **`var` is state** and **`let`/`const` are
 
 - **Server-rendered and resumable.** Pages are rendered on the server, and the browser resumes them
   instead of hydrating: no component code runs at load.
-- **Small.** Each component's code loads on its first event, in a chunk of its own: 270 to 550 B
+- **Small.** Each component's code loads on its first event, in a chunk of its own: 270 to 560 B
   gzipped in the demo app. A page with no events ships no JavaScript at all.
 - **No `async`, no `fetch`.** Components reach the server through [server functions](server-functions),
   called like plain functions.
@@ -56,11 +56,8 @@ export function Counter({ start }) {
 
 ## Status
 
-This is version 0.1.0. These are not supported yet:
+goal.js is young, and these are not supported yet:
 
-- keyed lists inside another list's row, or inside an element in an `{if}` branch (a compile error for
-  now);
 - props that change, children passed to components, function props, and components inside `{...}`
   holes of a component (in routes they work anywhere);
-- keeping focus in an input inside a `{...}` hole, which is replaced as a whole when it changes;
-- goal.js's own type system and `goal check`, a Vite plugin, and multipart (file upload) bodies.
+- goal.js's own type system and `goal check`, and a Vite plugin.

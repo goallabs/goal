@@ -79,7 +79,7 @@ describe('build', () => {
     rmSync(dir, { recursive: true, force: true });
     cpSync(join(import.meta.dirname, '../examples/virtual'), dir, { recursive: true, filter: (s) => !s.includes('dist') });
     const r = await build(dir);
-    expect(r.chunks.map((c) => c.url).sort()).toEqual(['/c/_/keyed.js', '/c/components/VirtualList.VirtualList.js']);
+    expect(r.chunks.map((c) => c.url.replace(/chunk-\w+/, 'chunk')).sort()).toEqual(['/c/_/chunk.js', '/c/_/keyed.js', '/c/components/VirtualList.VirtualList.js']); // the helpers it and keyed.js share
     const html = await (await fetch(`${listen(await serve(dir, { port: 0 }))}/`)).text();
     expect(html.match(/ m-r="/g)).toHaveLength(24);
     expect(html).toMatch(/style="height:0px"/);

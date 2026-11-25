@@ -4,6 +4,8 @@
 // one batch, rows that are gone are removed, and of the kept rows only those out of order are moved
 // (the rest are the longest run already in order).
 
+import { into } from './rt.js';
+
 const set = (el, name, v, off = v == null || v === false) =>
   name === 'value' ? (el.value = off ? '' : v)
   : name === 'checked' ? (el.checked = !off)
@@ -16,7 +18,7 @@ const put = (row, [kind, path, name], v) => {
   for (const p of path) el = el.children[p];
   const x = el.firstChild;
   if (kind) set(el, name, v);
-  else if (/[<&]/.test(v)) el.innerHTML = v;
+  else if (/[<&]/.test(v)) into(el.ownerDocument, el, el.firstChild, null, v); // markup: into the nodes there, keyed rows by key
   else if (x?.nodeType === 3 && !x.nextSibling) x.data = v;
   else el.textContent = v;
 };
@@ -53,8 +55,18 @@ export function _$lp(d, c, a, b, tpl, parts) {
   for (; end.data !== '/'; end = end.nextSibling) old.push(end); // rows are all elements, up to the end marker
   const parent = end.parentNode;
   // Writes a kept row's changed values in place; says no when the row has to be made again.
+  // Writes a kept row's changed values in place. A row whose values have no fixed place gets its new
+  // markup put into its nodes (rt.js), so what stays the same, an input's focus too, is kept.
   const keep = (r, o, n) => {
-    if (r !== o) for (let k = 3; k < r.length; k++) if (r[k] !== o[k]) if (parts) put(n, parts[k - 3], r[k]); else return;
+    if (r !== o)
+      for (let k = 3; k < r.length; k++)
+        if (r[k] !== o[k]) {
+          if (!parts) {
+            into(d, n.parentNode, n, n.nextSibling, tpl(r));
+            return 1;
+          }
+          put(n, parts[k - 3], r[k]);
+        }
     return 1;
   };
   // Rows that stay where they were, at the start and at the end, are patched where they are.

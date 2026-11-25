@@ -94,3 +94,63 @@ export function _$lh(el, root, x, h, e) {
 
 /** A keyed list in the browser: its rows, and `h(item, index)`, the handlers of one row. */
 export const _$L = (rows, h) => ((rows.h = h), rows);
+
+/**
+ * A `{...}` hole's new markup, put into the nodes after its start marker `c` (see into).
+ */
+export function _$hm(d, c, html) {
+  let end = c.nextSibling;
+  while (end.nodeType !== 8 || end.data !== '/') end = end.nextSibling;
+  into(d, c.parentNode, c.nextSibling, end, html);
+}
+
+/**
+ * New markup, put into the nodes of `parent` from `at` up to `end` (null: its last). A node of the
+ * same kind as the new one in its place is kept and updated, so a focused input stays focused and
+ * keeps what was typed; a row with a key (`m-k`) is found by its key, and moved there. The others
+ * are added or removed.
+ */
+export function into(d, parent, at, end, html) {
+  const t = d.createElement('template');
+  t.innerHTML = html;
+  kids(parent, at, end, t.content);
+}
+
+const key = (n) => (n.nodeType === 1 ? n.getAttribute('m-k') : null);
+
+function kids(parent, at, end, to) {
+  for (let n = to.firstChild, next; n; n = next) {
+    next = n.nextSibling;
+    const k = key(n);
+    let old = at;
+    if (k !== null) while (old !== end && key(old) !== k) old = old.nextSibling;
+    if (old !== end && old.nodeName === n.nodeName && key(old) === k) {
+      if (old === at) at = at.nextSibling;
+      else parent.insertBefore(old, at);
+      same(old, n);
+    } else parent.insertBefore(n, at);
+  }
+  while (at !== end) {
+    const x = at.nextSibling;
+    at.remove();
+    at = x;
+  }
+}
+
+function same(a, b) {
+  if (a.nodeType !== 1) {
+    if (a.data !== b.data) a.data = b.data;
+    return;
+  }
+  for (const { name } of [...a.attributes]) if (!b.hasAttribute(name)) attr(a, name, null);
+  for (const { name, value } of b.attributes) if (a.getAttribute(name) !== value) attr(a, name, value);
+  kids(a, a.firstChild, null, b);
+}
+
+/** An attribute that changed. As when the page is rendered, a form control's value and checked follow it. */
+function attr(a, name, v) {
+  if (v === null) a.removeAttribute(name);
+  else a.setAttribute(name, v);
+  if (name === 'value') a.value = v ?? '';
+  if (name === 'checked') a.checked = v !== null;
+}

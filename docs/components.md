@@ -42,6 +42,9 @@ element, not a fragment, and no other `return`. It takes at most one parameter, 
   `class`, `for`, `disabled`, `value`. A reactive attribute is just `name={expression}`.
 - A form with `onsubmit` never reloads the page.
 - `{value}` children are escaped. `null`, `false` and `true` render nothing, and arrays are joined.
+- When a `{...}` hole changes, its new markup goes into the nodes already there: an element that is
+  still the same kind of element is kept, so an input inside the hole keeps its focus and what was
+  typed.
 
 ## Lists
 
@@ -64,11 +67,16 @@ A list without keys is made again as a whole when it changes, which is fine for 
 When the list changes, a kept row gets only its changed values written, new rows are added in one go,
 and only the rows that are out of order move. Only a component with a keyed list loads that code.
 
-A keyed list goes straight in the markup, or straight in an `{if}` or ternary branch:
+A keyed list can go anywhere in the markup: straight in it, in an `{if}` or ternary branch, inside
+an element in a branch, or inside another list's row.
 
 ```jsx
 <ul>{if (open) items.map((x) => <li key={x.id}>{x.text}</li>) else <li>Closed</li>}</ul>
 ```
+
+Inside an element in a branch, or in a row, the rows carry their key. When the markup around them
+changes, each row is found by its key and moved, keeping its nodes, and with them an input's focus
+and what was typed.
 
 A list that never changes, such as one in a route, renders once and needs no key.
 
@@ -85,5 +93,3 @@ components/Counter.goal:9:15: write onclick, the HTML name, not onClick
 
 - Props that change, children passed to components, and function props.
 - Components inside `{...}` holes of a component. In routes they work anywhere.
-- Keyed lists inside another list's row, or inside an element in an `{if}` branch.
-- A `{...}` hole is replaced as a whole when it changes, so an input inside one loses focus.

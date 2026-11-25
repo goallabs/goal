@@ -208,13 +208,27 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
 
       let method = req.method === 'HEAD' ? 'GET' : req.method;
       let form = {};
+      const files = {};
       let body;
       if (!SAFE.has(req.method)) {
         const raw = await readBody(req, limit);
         const type = (req.headers['content-type'] ?? '').split(';')[0].trim();
         if (raw.length) {
           if (type === 'application/x-www-form-urlencoded') form = Object.fromEntries(new URLSearchParams(raw.toString()));
-          else if (type === 'application/json') {
+          else if (type === 'multipart/form-data') {
+            // A form with files: its fields go in form, and each file input's files in files, by name.
+            // A file input left empty arrives as an empty field.
+            let data;
+            try {
+              data = await new Response(raw, { headers: { 'content-type': req.headers['content-type'] } }).formData();
+            } catch {
+              return fail(400, 'Bad request');
+            }
+            for (const [name, v] of data) {
+              if (typeof v === 'string') form[name] = v;
+              else (files[name] ??= []).push({ name: v.name, type: v.type, size: v.size, data: Buffer.from(await v.arrayBuffer()) });
+            }
+          } else if (type === 'application/json') {
             try {
               body = JSON.parse(raw);
             } catch {
@@ -241,7 +255,7 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
 
       const ctx = _$ctx(token);
       if (dev && req.headers['x-goal-hmr']) ctx.hmr = keptState(req.headers['x-goal-hmr']); // goal dev: a live update (see hmr.js)
-      const request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, json: body };
+      const request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, files, json: body };
       const cookie = (name, value, opts) => setCookies.push(serializeCookie(name, value, opts));
       const out = await m.route.handler(request, { ctx, redirect, json, notFound, cookie });
       if (out instanceof Html) return send(200, HTML, page(out.s, [...ctx.ev], nonce, token, dev));

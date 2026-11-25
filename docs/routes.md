@@ -19,7 +19,7 @@ per request. The body may use `await`.
 
 - Path parameters are plain variables (`id`, `post`), as strings.
 - `request` has `method`, `path`, `url`, `params`, `query`, `headers`, `cookies`, `form` (a form's
-  fields) and `json` (a JSON body).
+  fields), `files` (a form's files) and `json` (a JSON body).
 - `cookie(name, value, options)` sets a cookie.
 
 ## What a route returns
@@ -40,6 +40,30 @@ Markup that starts with `<html>` is the whole document: put `<title>` and
 - Fixed paths win over paths with parameters: `/users/new` is chosen before `/users/{id}`.
 - A path with the wrong method gets 405, with an `Allow` header.
 - HEAD works wherever GET does.
+
+## File uploads
+
+A form with `enctype="multipart/form-data"` sends its files. Its text fields arrive in `request.form`,
+and each file input's files in `request.files`, as a list under the input's name. A file is
+`{ name, type, size, data }`, where `data` is a Buffer:
+
+```jsx
+<form method="post" action="/photos" enctype="multipart/form-data">
+  <input type="file" name="photo" multiple />
+  <button>Upload</button>
+</form>
+```
+
+```jsx
+route POST /photos {
+  for (const f of request.files.photo ?? []) save(f.data);
+  return redirect('/photos');
+}
+```
+
+The file name and type come from the browser, so don't use them as a path or trust them. A file input
+left empty arrives as an empty field. The whole body is limited to 1 MB by default: raise
+[`bodyLimit`](security#the-rest) for bigger files.
 
 ## Forms with any method
 
