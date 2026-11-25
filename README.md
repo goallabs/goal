@@ -47,8 +47,9 @@ also cover [routes](https://goallabs.github.io/goal/routes),
 [components](https://goallabs.github.io/goal/components),
 [server functions](https://goallabs.github.io/goal/server-functions),
 [security](https://goallabs.github.io/goal/security),
-[how it works](https://goallabs.github.io/goal/how-it-works) and
-[performance](https://goallabs.github.io/goal/performance).
+[how it works](https://goallabs.github.io/goal/how-it-works),
+[performance](https://goallabs.github.io/goal/performance), and working in
+[Vite](https://goallabs.github.io/goal/vite).
 
 ## Working on goal.js
 

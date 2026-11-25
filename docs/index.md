@@ -53,10 +53,11 @@ export function Counter({ start }) {
 - [Security](security): what is on by default, and how to change it.
 - [How it works](how-it-works): parse, compile, render and resume, and debugging.
 - [Performance](performance): benchmark results, and how to measure your own.
+- [Vite](vite): working on an app inside Vite's dev server.
 
 ## Status
 
 goal.js is young, and these are not supported yet:
 
 - components inside a keyed list's row;
-- goal.js's own type system and `goal check`, and a Vite plugin.
+- goal.js's own type system and `goal check`.

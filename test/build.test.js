@@ -227,7 +227,7 @@ describe('dev', () => {
     expect(await message()).toMatchObject({ type: 'update' });
     writeFileSync(join(dir, 'app.goal'), 'route GET / { var a = 1; return <p/>; }');
     expect(await message()).toMatchObject({ type: 'error', message: expect.stringContaining('state (var) belongs in a component') });
-  });
+  }, 20000); // three builds, each after the file watcher sees a change: slower when the other tests run too
 });
 
 describe('cli', () => {

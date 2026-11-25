@@ -10,14 +10,20 @@ export const _$e = (v) => {
 };
 
 /** Compiled markup: HTML that is already safe, so `_$h` doesn't escape it again. */
+const MARKUP = Symbol.for('goal.markup'); // the same in every copy of this module (Vite loads its own)
+
 export class Html {
   constructor(s) {
     this.s = s;
+    this[MARKUP] = true;
   }
   toString() {
     return this.s;
   }
 }
+
+/** Is it markup a compiled template made, whichever copy of this module made it? */
+export const isHtml = (v) => v?.[MARKUP] === true;
 
 /** Marks a compiled template as markup. Only compiled code makes these. */
 export const _$m = (s) => new Html(s);

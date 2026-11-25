@@ -13,7 +13,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
-import { Html, _$ctx } from './rt.js';
+import { isHtml, _$ctx } from './rt.js';
 import { page } from './server.js';
 
 const TYPES = {
@@ -165,13 +165,13 @@ function match(routes, method, segs) {
   return allow.size ? { allow: [...allow] } : null;
 }
 
-/** The state a page kept for each component, sent with a live update; anything else counts as none. */
+/** The state a page kept for each component, in order, sent with a live update; anything else counts as none. */
 function keptState(header) {
   try {
     const v = JSON.parse(header);
-    return v && typeof v === 'object' ? v : {};
+    return Array.isArray(v) ? v : [];
   } catch {
-    return {};
+    return [];
   }
 }
 
@@ -255,14 +255,18 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
 
       const ctx = _$ctx(token);
       if (dev && req.headers['x-goal-hmr']) {
-        // goal dev: a live update (see hmr.js). Each component gets the state the page kept for it.
+        // goal dev: a live update (see hmr.js). Components render in the page's order, so each takes
+        // the next state the page kept for the same component; one the page didn't have starts anew.
         const kept = (ctx.hmr = keptState(req.headers['x-goal-hmr']));
-        ctx.k = (chunk, i) => (kept[i]?.c === chunk ? kept[i].s : null);
+        ctx.k = (chunk) => {
+          const j = kept.findIndex((x) => x?.c === chunk);
+          return j < 0 ? null : kept.splice(0, j + 1).pop().s;
+        };
       }
       const request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, files, json: body };
       const cookie = (name, value, opts) => setCookies.push(serializeCookie(name, value, opts));
       const out = await m.route.handler(request, { ctx, redirect, json, notFound, cookie });
-      if (out instanceof Html) return send(200, HTML, page(out.s, [...ctx.ev], nonce, token, dev));
+      if (isHtml(out)) return send(200, HTML, page(out.s, [...ctx.ev], nonce, token, dev));
       if (out === undefined) return send(204);
       if (out?.[REPLY]) return send(out.status, out.type, out.body, out.headers);
       throw new Error('a route returns markup, redirect(), json(), notFound() or nothing');

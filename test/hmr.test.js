@@ -61,7 +61,7 @@ describe('live updates in goal dev', () => {
     next.html = `<!doctype html><html><head><title>New</title></head><body><div m-c="/c/A.A.js?v=2" m-i="0"><input id="t" value="x"></div>${EVENTS(['click'])}<script>window.ran = 1</script></body></html>`;
     send({ type: 'update', version: 'v2' });
     await vi.waitFor(() => expect(document.getElementById('t').value).toBe('x'));
-    expect(sent).toEqual([{ url: 'http://localhost/page', kept: { 0: { c: '/c/A.A.js', s: { n: 5 } }, 1: { c: '/c/B.B.js', s: {} } } }]);
+    expect(sent).toEqual([{ url: 'http://localhost/page', kept: [{ c: '/c/A.A.js', s: { n: 5 } }, { c: '/c/B.B.js', s: {} }] }]);
     expect(document.querySelector('[m-c]').getAttribute('m-c')).toBe('/c/A.A.js?v=2');
     expect(document.querySelector('script')).toBe(null); // the new page's scripts don't run again
     expect(document.title).toBe('New');

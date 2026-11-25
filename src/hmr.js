@@ -31,9 +31,8 @@ export function hmr(d, w, connect = (url) => new w.EventSource(url)) {
   const events = (doc) => JSON.parse(doc.querySelector('meta[name="goal-events"]')?.content || '[]');
 
   async function update() {
-    const kept = {}; // by instance number: which component, and its state now
-    for (const el of d.querySelectorAll('[m-c]'))
-      kept[el.getAttribute('m-i')] = { c: el.getAttribute('m-c').split('?')[0], s: el.$s ?? JSON.parse(el.getAttribute('m-s') || '{}') };
+    const kept = []; // in the page's order: which component, and its state now
+    for (const el of d.querySelectorAll('[m-c]')) kept.push({ c: el.getAttribute('m-c').split('?')[0], s: el.$s ?? JSON.parse(el.getAttribute('m-s') || '{}') });
     const header = JSON.stringify(kept);
     if (header.length > 8000) return w.location.reload(); // more than a request header should carry
     const res = await w.fetch(w.location.href, { headers: { 'x-goal-hmr': header } });

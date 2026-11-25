@@ -1,6 +1,6 @@
 {
   "name": "goaljs",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "goal.js: var is state, let/const are computed, server-rendered and resumable",
   "homepage": "https://goallabs.github.io/goal/",
   "repository": {
@@ -44,6 +44,14 @@
     "happy-dom": "^21.0.4",
     "vitest": "^5.1.1"
   },
+  "peerDependencies": {
+    "vite": ">=6"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
   "bin": {
     "goal": "bin/goal.js"
   },
@@ -53,6 +61,7 @@
     "./rt": "./src/rt.js",
     "./loader": "./src/loader.js",
     "./build": "./src/build.js",
-    "./keyed": "./src/keyed.js"
+    "./keyed": "./src/keyed.js",
+    "./vite": "./src/vite.js"
   }
 }
