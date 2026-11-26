@@ -47,6 +47,23 @@ Routes and other server functions call server functions directly, also with no `
 - Server functions are declared at the top level of a file. `export server function` lets other
   `.goal` files import them.
 
+## The request
+
+Inside a server function, `request` is the request it runs for, as in a route: its `cookies`,
+`headers`, `tenant` and the rest. It's the same whether an event handler called the function, a route
+did, or a page rendering with `call()`:
+
+```jsx
+server function myNotes() {
+  const user = await session(request.cookies.sid);
+  if (!user) return [];
+  return db.notes.where({ tenant: request.tenant.id, owner: user.id });
+}
+```
+
+A function with a parameter or a variable named `request` keeps its own. Outside a request (a script,
+a test), `request` is `undefined`.
+
 ## Loading data with call()
 
 `call()` lets a component load its own data. It runs a server function as the component renders,

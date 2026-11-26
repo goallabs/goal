@@ -21,6 +21,7 @@ import { extname, resolve, sep } from 'node:path';
 import { isHtml, _$e, _$ok } from './rt.js';
 import { _$ctx } from './render.js';
 import { _$lr } from './load.js';
+import { _$box } from './request.js';
 import { page } from './server.js';
 
 const TYPES = {
@@ -258,14 +259,14 @@ function limiter(opts, trustProxy) {
   const hops = trustProxy === true ? 1 : Number(trustProxy) || 0;
   const seen = new Map(); // client -> { n, end }
   let sweep = 0;
-  return (req) => {
+  return (req, tenant) => {
     const now = Date.now();
     if (now >= sweep) {
       for (const [k, v] of seen) if (v.end <= now) seen.delete(k);
       sweep = now + window;
     }
     const forwarded = hops && String(req.headers['x-forwarded-for'] ?? '').split(',').map((x) => x.trim()).filter(Boolean);
-    const client = (hops && forwarded.at(-hops)) || req.socket.remoteAddress;
+    const client = `${(hops && forwarded.at(-hops)) || req.socket.remoteAddress} ${tenant}`; // each tenant counts apart
     let c = seen.get(client);
     if (!c || c.end <= now) seen.set(client, (c = { n: 0, end: now + window }));
     return ++c.n > max ? Math.ceil((c.end - now) / 1000) : 0;
@@ -291,7 +292,7 @@ function keptState(header) {
 /**
  * A request handler for node:http.
  * @param {{ method: string, path: string, handler: Function }[]} routes
- * @param {{ dev?: boolean, staticDirs?: string[], config?: { csp?: string | false, csrf?: boolean, bodyLimit?: number, cors?: string | string[], rateLimit?: { max?: number, window?: number } | false, trustProxy?: boolean | number, onError?: (e: Error, request?: object) => void }, log?: (e: Error) => void, styles?: string }} [opts]
+ * @param {{ dev?: boolean, staticDirs?: string[], config?: { csp?: string | false, csrf?: boolean, bodyLimit?: number, cors?: string | string[], tenant?: (r: { host: string, hostname: string, prefix?: string, path: string, headers: object, cookies: object }) => unknown, tenantPrefix?: boolean, rateLimit?: { max?: number, window?: number } | false, trustProxy?: boolean | number, onError?: (e: Error, request?: object) => void }, log?: (e: Error) => void, styles?: string }} [opts]
  *   config.onError: called with each error a route or server function throws, and the request;
  *   styles: the URL of the app's stylesheet (the style blocks), which each page links
  */
@@ -299,7 +300,12 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
   const sorted = table(routes);
   const limit = config.bodyLimit ?? 1_000_000;
   const tooMany = limiter(config.rateLimit, config.trustProxy);
-  return async (req, res) => {
+  // Each request runs in a box that will hold it, so a server function can take it (see request.js)
+  return (req, res) => {
+    const box = {};
+    return _$box(box, () => answer(req, res, box));
+  };
+  async function answer(req, res, box) {
     const nonce = randomBytes(16).toString('base64');
     const headers = securityHeaders(nonce, { csp: config.csp, tls: !!req.socket.encrypted });
     const cookies = parseCookies(req.headers.cookie);
@@ -352,9 +358,27 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
         if (f) return send(200, TYPES[extname(f)] ?? 'application/octet-stream', readFileSync(f));
       }
 
+      // Tenants (goal.config.js tenant): told apart by the host, or with tenantPrefix by the path's first
+      // part, which routes then don't see. One that's unknown (null) gets a 404.
+      let path = url.pathname;
+      let base = '';
+      let tenant;
+      let host = '';
+      if (config.tenant) {
+        host = String((config.trustProxy && req.headers['x-forwarded-host']?.split(',').at(-1).trim()) || req.headers.host || '');
+        let prefix;
+        if (config.tenantPrefix) {
+          const m = /^\/([^/]+)(\/.*)?$/.exec(path);
+          if (m) [, prefix, path = '/'] = m;
+          if (m) base = `/${prefix}`;
+        }
+        tenant = await config.tenant({ host, hostname: host.replace(/:\d+$/, ''), prefix, path, headers: req.headers, cookies });
+        if (tenant == null) return fail(404, 'Not found');
+      }
+
       let segs;
       try {
-        segs = url.pathname === '/' ? [] : url.pathname.replace(/\/$/, '').slice(1).split('/').map(decodeURIComponent);
+        segs = path === '/' ? [] : path.replace(/\/$/, '').slice(1).split('/').map(decodeURIComponent);
       } catch {
         return fail(400, 'Bad request');
       }
@@ -375,7 +399,7 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
           });
         }
       }
-      const wait = !SAFE.has(req.method) && tooMany(req); // a client sending too many changes waits
+      const wait = !SAFE.has(req.method) && tooMany(req, host + base); // a client sending too many changes waits
       if (wait) return send(429, ...(api ? [JSON_TYPE, JSON.stringify({ error: 'Too many requests' })] : [HTML, errorPage('Too many requests')]), { 'retry-after': String(wait) });
       let form = {};
       const files = {};
@@ -429,12 +453,14 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
           return j < 0 ? null : kept.splice(0, j + 1).pop().s;
         };
       }
-      request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies: api ? {} : cookies, form, files, json: data, body: raw, signal: gone.signal };
+      request = box.r = { method, path, url, tenant, base, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies: api ? {} : cookies, form, files, json: data, body: raw, signal: gone.signal };
       const cookie = (name, value, opts) => {
         if (api) throw new Error('an api route answers without cookies: send a token in a header, like Authorization, instead');
         setCookies.push(serializeCookie(name, value, opts));
       };
-      const x = { ctx, redirect, json, notFound: api ? () => json({ error: 'Not found' }, 404) : notFound, cookie, reply, stream, events };
+      // With tenants by path, a redirect to a path stays in the tenant's
+      const go = (to, o) => Object.assign(redirect(to, o), base && !o?.external ? { headers: { location: base + to } } : {});
+      const x = { ctx, redirect: go, json, notFound: api ? () => json({ error: 'Not found' }, 404) : notFound, cookie, reply, stream, events };
       // The groups' before blocks run first, outer first: one that returns something answers instead
       let out;
       for (const b of m.route.before ?? []) if ((out = await b(request, x)) !== undefined) break;
@@ -446,7 +472,7 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
       if (isHtml(out)) {
         const html = await _$lr(ctx, out.s); // components that waited for a call(), with its answer
         for (const e of ctx.lx ?? []) report(e); // a server function that failed in a call()
-        return send(status, HTML, page(html, [...ctx.ev], nonce, token, dev, styles), extra);
+        return send(status, HTML, page(html, [...ctx.ev], nonce, token, dev, styles, base), extra);
       }
       if (out === undefined) return send(204);
       if (out?.[REPLY]) return out.stream ? await pipe(out) : send(out.status, out.type, out.body, out.headers);
@@ -456,5 +482,5 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
       report(e);
       return dev ? send(500, 'text/plain; charset=utf-8', String(e.stack)) : fail(500, 'Something went wrong');
     }
-  };
+  }
 }

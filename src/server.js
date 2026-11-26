@@ -37,10 +37,10 @@ export function hmrScript() {
  * live updates, and the events it listens for, which an update compares. `styles`, the app's
  * stylesheet, is linked at the end of the head, so its rules come after the page's own stylesheets.
  */
-export function page(html, events, nonce, token = '', dev = false, styles = null) {
+export function page(html, events, nonce, token = '', dev = false, styles = null, base = '') {
   const link = styles ? `<link rel="stylesheet" href="${_$e(styles)}">` : '';
   let script = events.length
-    ? `<meta name="goal-csrf" content="${_$e(token)}"><script type="module" nonce="${nonce}">${loaderScript().replace(EVENTS, JSON.stringify(events))}</script>`
+    ? `<meta name="goal-csrf" content="${_$e(token)}">${base ? `<meta name="goal-base" content="${_$e(base)}">` : ''}<script type="module" nonce="${nonce}">${loaderScript().replace(EVENTS, JSON.stringify(events))}</script>`
     : '';
   if (dev) script += `<meta name="goal-events" content="${_$e(JSON.stringify(events))}"><script type="module" nonce="${nonce}">${hmrScript()}</script>`;
   if (/^<html[\s>]/.test(html)) {

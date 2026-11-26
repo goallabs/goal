@@ -133,6 +133,41 @@ group /api/v1 api {
 export default { cors: ['https://app.example.com'] };
 ```
 
+## Tenants
+
+One app can serve many tenants (customers, teams, organizations), each by its own host or path.
+`tenant` in `goal.config.js` tells them apart. It runs once per request, before the routes and server
+functions, and can be async:
+
+```js
+// goal.config.js
+import { tenants } from './db.js';
+
+export default {
+  // acme.app.com, globex.app.com, or a domain of the tenant's own
+  tenant: async ({ hostname }) => tenants.byHost(hostname),
+};
+```
+
+What it returns is `request.tenant`, in routes, `before` blocks and [server
+functions](server-functions#the-request). `null` (or nothing) answers 404, so an unknown host never
+reaches your code. Return a value of your own for a host without a tenant, such as the main site.
+
+It gets `host`, `hostname` (without the port), `prefix`, `path`, `headers` and `cookies`. Behind a
+proxy, set *config* `trustProxy` to read the host from `X-Forwarded-Host`.
+
+**By path.** With `tenantPrefix: true`, the path's first part names the tenant: `app.com/acme/notes`
+gives the resolver `prefix: 'acme'`, and the routes see `/notes`, so a route is written once for every
+tenant. `request.base` is `/acme`. `redirect('/notes')` goes to `/acme/notes`, and the page's server
+function calls go under `/acme` too. Links and form actions are yours to write:
+`<a href={request.base + '/notes'}>`.
+
+- Each tenant's data is yours to keep apart: filter every query by `request.tenant`.
+- Cookies are for the host that set them, so tenants on different hosts don't share a session. Tenants
+  by path share the host, and so its cookies.
+- The rate limit counts each tenant on its own.
+- Static files are the same for every tenant, and no tenant is looked up for them.
+
 ## Typed input
 
 In a [`#strict`](types) file, a route can name the types of its `json`, `query` and `form` in

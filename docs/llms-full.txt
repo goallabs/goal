@@ -279,6 +279,41 @@ group /api/v1 api {
 export default { cors: ['https://app.example.com'] };
 ```
 
+## Tenants
+
+One app can serve many tenants (customers, teams, organizations), each by its own host or path.
+`tenant` in `goal.config.js` tells them apart. It runs once per request, before the routes and server
+functions, and can be async:
+
+```js
+// goal.config.js
+import { tenants } from './db.js';
+
+export default {
+  // acme.app.com, globex.app.com, or a domain of the tenant's own
+  tenant: async ({ hostname }) => tenants.byHost(hostname),
+};
+```
+
+What it returns is `request.tenant`, in routes, `before` blocks and [server
+functions](https://goallabs.github.io/goal/server-functions#the-request). `null` (or nothing) answers 404, so an unknown host never
+reaches your code. Return a value of your own for a host without a tenant, such as the main site.
+
+It gets `host`, `hostname` (without the port), `prefix`, `path`, `headers` and `cookies`. Behind a
+proxy, set *config* `trustProxy` to read the host from `X-Forwarded-Host`.
+
+**By path.** With `tenantPrefix: true`, the path's first part names the tenant: `app.com/acme/notes`
+gives the resolver `prefix: 'acme'`, and the routes see `/notes`, so a route is written once for every
+tenant. `request.base` is `/acme`. `redirect('/notes')` goes to `/acme/notes`, and the page's server
+function calls go under `/acme` too. Links and form actions are yours to write:
+`<a href={request.base + '/notes'}>`.
+
+- Each tenant's data is yours to keep apart: filter every query by `request.tenant`.
+- Cookies are for the host that set them, so tenants on different hosts don't share a session. Tenants
+  by path share the host, and so its cookies.
+- The rate limit counts each tenant on its own.
+- Static files are the same for every tenant, and no tenant is looked up for them.
+
 ## Typed input
 
 In a [`#strict`](https://goallabs.github.io/goal/types) file, a route can name the types of its `json`, `query` and `form` in
@@ -578,6 +613,23 @@ Routes and other server functions call server functions directly, also with no `
   Otherwise, load the data in the route and pass it as a prop.
 - Server functions are declared at the top level of a file. `export server function` lets other
   `.goal` files import them.
+
+## The request
+
+Inside a server function, `request` is the request it runs for, as in a route: its `cookies`,
+`headers`, `tenant` and the rest. It's the same whether an event handler called the function, a route
+did, or a page rendering with `call()`:
+
+```jsx
+server function myNotes() {
+  const user = await session(request.cookies.sid);
+  if (!user) return [];
+  return db.notes.where({ tenant: request.tenant.id, owner: user.id });
+}
+```
+
+A function with a parameter or a variable named `request` keeps its own. Outside a request (a script,
+a test), `request` is `undefined`.
 
 ## Loading data with call()
 

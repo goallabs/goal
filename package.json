@@ -1,6 +1,6 @@
 {
   "name": "goaljs",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "description": "goal.js: var is state, let/const are computed, server-rendered and resumable",
   "homepage": "https://goallabs.github.io/goal/",
   "repository": {
@@ -65,6 +65,7 @@
     "./render": "./src/render.js",
     "./call": "./src/call.js",
     "./load": "./src/load.js",
+    "./request": "./src/request.js",
     "./loader": "./src/loader.js",
     "./build": "./src/build.js",
     "./keyed": "./src/keyed.js",

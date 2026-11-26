@@ -44,8 +44,9 @@ const UNSEEN = new Set(['head', 'title', 'meta', 'link', 'base']); // never show
 // Where each helper is. rt.js has what nearly every component needs; the others are files of their
 // own next to it, so the browser loads them only for components that use them (the bundler splits
 // by file): render.js for rendering components, call.js for server function calls, load.js for
-// call(), and keyed.js for keyed lists, which only browser code imports.
-const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], load: ['_$lc', '_$lw', '_$ll', '_$lb'], keyed: ['_$L'] };
+// call(), and keyed.js for keyed lists, which only browser code imports; request.js, the request a
+// server function runs for, only server code does.
+const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], load: ['_$lc', '_$lw', '_$ll', '_$lb'], keyed: ['_$L'], request: ['_$req'] };
 const ROUTE_HELPERS = ['redirect', 'json', 'notFound', 'cookie', 'reply', 'stream', 'events'];
 const FORM_METHODS = ['get', 'post', 'put', 'patch', 'delete'];
 
@@ -198,9 +199,24 @@ function transform(ast, mode, o, routes) {
   serverCalls(program, comps, o);
   const components = comps.map((fn) => component(fn, program, mode, o));
   if (mode === 'server') for (const r of routeFns) route(r, byName.get(r.node.id.name), program);
+  if (mode === 'server' && !o.render) for (const fn of serverFnPaths(program, o)) withRequest(fn);
   // Markup outside components and routes (helpers that return markup) becomes plain templates.
   program.traverse(jsxVisitor({ kind: 'module', hs: null, scope: program.scope, program: program.scope, reactive: new Set() }));
   return { program, components };
+}
+
+// A server function's body starts by taking the request it runs for (see request.js), unless the
+// function has a `request` of its own.
+function serverFnPaths(program, o) {
+  return program
+    .get('body')
+    .map((s) => (s.isExportNamedDeclaration() ? s.get('declaration') : s))
+    .filter((d) => d.isFunctionDeclaration() && o.own.has(d.node.id.name));
+}
+
+function withRequest(fn) {
+  if (fn.scope.hasOwnBinding('request')) return;
+  fn.get('body').unshiftContainer('body', t.variableDeclaration('const', [t.variableDeclarator(t.identifier('request'), t.callExpression(t.identifier('_$req'), []))]));
 }
 
 // Assignments JavaScript refuses when the code runs, reported when it compiles instead: to a const
@@ -1065,9 +1081,9 @@ function template(parts) {
 
 /** The helpers' imports: from each file, all of them (the browser's modules drop those they don't use). */
 function importHelpers(o, browser) {
-  const from = { rt: o.rt, render: beside(o.rt, 'render'), call: beside(o.rt, 'call'), load: beside(o.rt, 'load'), keyed: o.keyed };
+  const from = { rt: o.rt, render: beside(o.rt, 'render'), call: beside(o.rt, 'call'), load: beside(o.rt, 'load'), keyed: o.keyed, request: beside(o.rt, 'request') };
   return Object.entries(HELPERS)
-    .filter(([f]) => browser || f !== 'keyed')
+    .filter(([f]) => (browser ? f !== 'request' : f !== 'keyed'))
     .map(([f, names]) => t.importDeclaration(names.map((h) => t.importSpecifier(t.identifier(h), t.identifier(h))), t.stringLiteral(from[f])));
 }
 

@@ -284,6 +284,11 @@ describe('server function calls', () => {
     expect(fetch.mock.calls[0][1].headers['x-csrf-token']).toBe('tok');
     fetch.mockImplementation(async () => ({ ok: false, status: 403 }));
     await expect(_$sf('/_m/a/b', [])).rejects.toThrow('server function /_m/a/b failed: 403');
+    expect(fetch.mock.calls[0][0]).toBe('/_m/a/b');
+    // With tenants by path, the page names its tenant's path, which goes in front
+    document.head.innerHTML = '<meta name="goal-csrf" content="tok"><meta name="goal-base" content="/acme">';
+    await expect(_$sf('/_m/a/b', [])).rejects.toThrow();
+    expect(fetch.mock.calls.at(-1)[0]).toBe('/acme/_m/a/b');
     document.head.innerHTML = '';
     vi.unstubAllGlobals();
   });

@@ -33,6 +33,7 @@ describe('server', () => {
     expect(page('<html lang="en"><p>x</p></html>', ['click'], 'abc')).toBe(`<!doctype html><html lang="en"><p>x</p></html>${script}`);
     expect(page('<htmlx>', [], 'abc')).toContain('<body><htmlx></body>');
     expect(page('<p></p>', ['click'], 'n', 'a"b')).toContain('<meta name="goal-csrf" content="a&quot;b"><script');
+    expect(page('<p></p>', ['click'], 'n', 't', false, null, '/a"b')).toContain('<meta name="goal-csrf" content="t"><meta name="goal-base" content="/a&quot;b"><script');
     expect(loaderScript()).toBe(loaderScript());
     expect(loaderScript()).toMatch(/^\(\(\)=>\{.*\(document,"__GOAL_EVENTS__"\);\}\)\(\);$/s);
   });

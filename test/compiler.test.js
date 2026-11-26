@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { compile, GoalError } from '../src/compiler.js';
 import { build, load } from './helpers.js';
 import { render } from '../src/server.js';
@@ -979,5 +982,19 @@ describe('style blocks', () => {
 
   it('report a mistake in the CSS at its place in the .goal file', () => {
     expect(errorOf('export const a = 1;\nstyle {\n  @import "x.css";\n}')).toBe('App.goal:3:3: @import goes in a stylesheet under public/, linked from the page');
+  });
+});
+
+describe('the package', () => {
+  it('exports every helper file compiled code imports, server and browser', () => {
+    const pkg = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8'));
+    const r = compile(
+      `export server function save(v) { return v; }
+      export function A() { var q = ''; var r = call(save(q)); var list = [1]; return <ul onclick={() => save(1)}>{list.map((x) => <li key={x}>{x}</li>)}{r.value}</ul>; }`,
+      { file: 'A.goal', rt: 'goaljs/rt', keyed: 'goaljs/keyed', chunk: (n) => `/c/${n}.js` },
+    );
+    const used = new Set([r.server, r.render, ...r.clients.map((c) => c.code)].flatMap((code) => [...code.matchAll(/from "goaljs\/(\w+)"/g)].map((m) => `./${m[1]}`)));
+    expect([...used].sort()).toEqual(['./call', './keyed', './load', './render', './request', './rt']);
+    for (const f of used) expect(pkg.exports[f]).toBe(`./src/${f.slice(2)}.js`);
   });
 });
