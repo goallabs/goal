@@ -13,6 +13,7 @@ What to know before writing goal.js code:
 - A route's body runs on the server once per request and may use `await`. Path parameters are plain constants (`id`). `request` has `method`, `path`, `url`, `params`, `query`, `headers`, `cookies`, `form`, `files` and `json`. A route returns markup (a page), `redirect('/path')`, `json(value, status)`, `notFound()`, or nothing (204), and `cookie(name, value, options)` sets a cookie.
 - Lists are `items.map((x) => <li key={x.id}>...</li>)`. With `key`, the list is patched by key.
 - Components can render components, pass `children`, and pass function props that run as the parent's handlers.
+- One compile makes a file's server code and browser code, from the same templates and with the same escaping and URL checks, so the browser's renders always agree with the server's HTML. Routes and server functions never reach the browser.
 - Security is on by default: every value is escaped, `<script>`, `<style>` and `srcdoc` in markup are compile errors, `javascript:` and `data:` URLs are blocked, every page has a strict Content-Security-Policy with a nonce, and forms and server functions are protected from CSRF. `goal.config.js` turns each one off explicitly.
 - The CLI is `goal dev`, `goal build`, `goal start`, `goal check` and `goal add <tool>`. Static files go in `public/`, and `.env` is read into `process.env`.
 

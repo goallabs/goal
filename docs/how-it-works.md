@@ -23,6 +23,27 @@ nav_order: 8
    the server answers. The chunk starts loading on intent (pointer over, focus), so it's usually there
    before the click or the first key.
 
+## One source for the server and the browser
+
+A `.goal` file is compiled once, and that one compile makes all of its code: the server module that
+renders the HTML, each component's browser chunk, and the file's render module, which renders
+components again in the browser. So both sides follow the same rules:
+
+- **The same checks.** A compile error stops the whole file. Nothing reaches the browser that the
+  server would refuse, and nothing runs on the server that the browser couldn't render.
+- **The same templates.** A keyed list's row is one template that the server renders and the browser
+  patches with, and a component rendered again in the browser uses the server's own templates. The
+  HTML the browser makes can't drift from the HTML the server sent.
+- **The same safety.** Escaping, attributes and the URL check come from the same helpers on both
+  sides, so a `javascript:` URL is blocked whether the server renders it or the browser patches it in.
+- **The same component.** The browser runs the component's body as you wrote it, with the same `var`
+  state and computed `let` and `const`, so its next render agrees with the server's first one.
+
+What differs is on purpose: routes, server functions and what they import stay on the server, and the
+page gets only the props its browser code reads. Types are checked when the app compiles, and the
+server checks again, when the request comes in, what a server function or a typed route receives,
+since a request can come from anywhere.
+
 ## Size
 
 `goal build` prints the gzipped size of each client chunk and of the loader. Helpers that several

@@ -13,6 +13,10 @@ A compiled JavaScript framework where **`var` is state** and **`let`/`const` are
   instead of hydrating: no component code runs at load.
 - **Small.** Each component's code loads on its first event, in a chunk of its own: 220 B to 1.3 kB
   gzipped in the demo app. A page with no events ships no JavaScript at all.
+- **One source, the same rules on the server and in the browser.** Each `.goal` file compiles once
+  into the server's code and the browser's, from the same templates, with the same escaping and URL
+  checks. What the browser renders always agrees with what the server sent. See
+  [How it works](how-it-works#one-source-for-the-server-and-the-browser).
 - **No `async`, no `fetch`.** Components reach the server through [server functions](server-functions),
   called like plain functions.
 - **Secure by default.** Escaping, URL checks, a strict Content-Security-Policy, CSRF protection and
