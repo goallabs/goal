@@ -1,5 +1,10 @@
 // Helpers that compiled goal.js code calls, on the server and in client chunks.
 // Names start with _$ so they can't clash with names in user code.
+//
+// The bundler splits the browser code by file, so this one holds only what nearly every component
+// needs: escaping, templates, attributes and patching a hole. The rest are in files of their own,
+// loaded only by the components that use them: render.js (components rendered in the browser),
+// call.js (server function calls) and keyed.js (keyed lists).
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
@@ -52,25 +57,6 @@ export const _$a = (name, v) => {
   return v == null || v === false ? '' : v === true ? ' ' + name : ` ${name}="${_$e(v)}"`;
 };
 
-/** Writes only the props a component's browser code reads, so the rest never reaches the page. */
-export const _$pa = (props, keys) => {
-  if (!keys.length) return '';
-  const o = {};
-  for (const k of keys) if (Object.hasOwn(props, k)) o[k] = props[k];
-  return ` m-p="${_$e(JSON.stringify(o))}"`;
-};
-
-/**
- * Calls a server function from the browser: what a call in an event handler compiles to. The
- * request carries the page's CSRF token and comes from this site, so the server lets it through.
- */
-export const _$sf = async (url, args) => {
-  const token = document.querySelector('meta[name="goal-csrf"]')?.content ?? '';
-  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': token }, body: JSON.stringify(args) });
-  if (!res.ok) throw new Error(`server function ${url} failed: ${res.status}`);
-  return (await res.json()).v;
-};
-
 /** Runs a server function for a request from the browser: the arguments are a JSON array. */
 export const _$call = async (fn, r, x, types) => {
   if (!Array.isArray(r.json)) return x.json({ error: 'send the arguments as a JSON array' }, 400);
@@ -105,80 +91,8 @@ export function _$ok(v, x) {
   }
 }
 
-/** A render: numbers component instances, collects the page's events, and holds the CSRF token. */
-export const _$ctx = (t = '') => ({
-  i: 0,
-  t,
-  ev: new Set(),
-  e(list) {
-    for (const x of list) this.ev.add(x);
-  },
-});
-
-/**
- * The context of components rendered in the browser: inside a {...} hole, or with props that change.
- * Their instance numbers start where no server render reaches, their forms get the page's CSRF
- * token, and the loader starts listening for their events.
- */
-export const _$B = {
-  i: 1e6,
-  r: null, // the component running now: the loader sets it before each run
-  /**
-   * The context for the components rendered in hole `n` of the component running now. Each one
-   * keeps the state of the component in its place, if it is the same (see keptState in compiler.js):
-   * the components in that hole now, in order. One where there was none starts as written.
-   */
-  h(n) {
-    const r = this.r;
-    const d = r.ownerDocument;
-    const w = d.createTreeWalker(r, 128);
-    let c;
-    while ((c = w.nextNode()) && c.data !== `${r.getAttribute('m-i')}.${n}`);
-    const q = [];
-    for (let x = c.nextSibling; x.nodeType !== 8 || x.data !== '/'; x = x.nextSibling)
-      if (x.nodeType === 1) q.push(...(x.hasAttribute('m-c') ? [x] : []), ...x.querySelectorAll('[m-c]'));
-    const b = this;
-    return {
-      get i() {
-        return b.i;
-      },
-      set i(v) {
-        b.i = v;
-      },
-      t: d.querySelector('meta[name="goal-csrf"]').content, // a page with components that run has it
-      e: (list) => d.dispatchEvent(new CustomEvent('goal:listen', { detail: list })),
-      k: (chunk) => {
-        const j = q.findIndex((x) => x.getAttribute('m-c').split('?')[0] === chunk);
-        if (j < 0) return null;
-        const x = q.splice(0, j + 1).pop();
-        return x.$s ?? JSON.parse(x.getAttribute('m-s')); // only a component with state asks
-      },
-    };
-  },
-};
-
-/**
- * A function prop: handler `h` of the component instance `i` that gives it. It runs nothing where it
- * is made; the page gets {$h, $i}, and the loader turns that into a function that runs the handler
- * in that component, as an event would.
- */
-export const _$f = (h, i) => Object.assign(() => {}, { toJSON: () => ({ $h: h, $i: i }) });
-
 /** The server's rendering of a keyed list (see keyed.js): each row through its template. */
 export const _$hl = (rows, tpl) => rows.map(tpl).join('');
-
-/** Runs a list row's handler `h` ("r0"): which row is it, counting from the list's start marker? */
-export function _$lh(el, root, x, h, e) {
-  const row = el.closest('[m-r]');
-  const n = row.getAttribute('m-r');
-  let i = 0;
-  for (let s = row.previousSibling; s.data !== `${root.getAttribute('m-i')}.${n}`; s = s.previousSibling) i++; // rows are all elements
-  const list = x[0][n];
-  return list.h(list[i][1], i)[h.slice(1)](e); // its index now: a kept row may have moved
-}
-
-/** A keyed list in the browser: its rows, and `h(item, index)`, the handlers of one row. */
-export const _$L = (rows, h) => ((rows.h = h), rows);
 
 /**
  * A `{...}` hole's new markup, put into the nodes after its start marker `c` (see into).

@@ -31,6 +31,7 @@ export async function main(argv, log = console.log, opts = {}) {
       const r = await build(app);
       for (const route of r.routes) log(route);
       for (const c of r.chunks) log(`${c.url}  ${c.bytes} B, ${c.gzip} B gzipped`);
+      if (r.styles) log(`${r.styles.url.split('?')[0]}  ${r.styles.bytes} B, ${r.styles.gzip} B gzipped (the style blocks)`);
       log(`loader  ${r.loader} B gzipped, inline`);
       return 0;
     } catch (e) {

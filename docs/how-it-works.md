@@ -27,15 +27,18 @@ nav_order: 8
 
 `goal build` prints the gzipped size of each client chunk and of the loader. Helpers that several
 components share go in a chunk of their own, and the keyed-list code in another, loaded only by
-components with a keyed list. In the demo app, the component chunks are 220 to 740 B,
-the shared helpers 1697 B, the keyed-list code 1078 B, and the loader 1064 B.
+components with a keyed list. The code for calling server functions, and for rendering a component
+inside another in the browser, goes only to the components that do it. In the demo app, the
+component chunks are 220 to 1052 B, the shared helpers 980 B, the keyed-list code 1190 B, and the
+loader 1064 B. The files' style blocks are one stylesheet, 327 B there.
 
 ## Live updates in goal dev
 
 `goal dev` builds again when a file changes and tells the open pages what changed, over a stream at
 `/_goal/hmr`:
 
-- **A stylesheet:** the page loads it again in place.
+- **A stylesheet:** the page loads it again in place. So does a style block: after a change to
+  one, the page loads the stylesheet of the style blocks again, as well as getting the new code.
 - **Code**, a component's or the server's: the page asks the server for itself again, sending the
   state each component has now. The server renders the page with that state, and the new body takes
   the old one's place, keeping the scroll. The focused element keeps the focus, and an input its

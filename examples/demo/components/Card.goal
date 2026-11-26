@@ -1,5 +1,10 @@
 // A wrapper with no state and no handlers: it renders on the server and ships no code. What goes
-// inside <Card> is its children, which it puts where it likes.
+// inside <Card> is its children, which it puts where it likes. Its style block styles its own
+// markup, the <h2>: the children are styled by the file that writes them.
+
+style {
+  h2 { font-size: 1.1rem; margin: 1.75rem 0 0.25rem; }
+}
 
 export function Card({ title, children }) {
   return (

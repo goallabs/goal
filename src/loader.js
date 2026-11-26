@@ -22,7 +22,7 @@ export function boot(d, events, load = (u) => import(u)) {
   };
   for (const t of ['pointerover', 'focusin']) d.addEventListener(t, warm, true);
   // A run of the component from its state: [values, handlers, read the state, the state read].
-  // When it renders components in the browser (m._$B, rt.js), they look for theirs inside it.
+  // When it renders components in the browser (m._$B, render.js), they look for theirs inside it.
   const run = (m, r) => {
     if (m._$B) m._$B.r = r;
     const x = m.default(r.$s, r.$p);
@@ -81,10 +81,10 @@ export function boot(d, events, load = (u) => import(u)) {
       }
   };
   // A component's props. A function prop is written {$h, $i}: calling it runs handler $h of the
-  // component that gave it, instance $i (see _$f in rt.js).
+  // component that gave it, instance $i (see _$f in render.js).
   const props = (r) =>
     JSON.parse(r.getAttribute('m-p') || '{}', (k, v) => (v?.$h === undefined ? v : (...a) => act(d.querySelector(`[m-i="${v.$i}"]`), [(m, x) => x[1][v.$h](...a)])));
-  // The page's events, and those of components rendered in the browser later (rt.js).
+  // The page's events, and those of components rendered in the browser later (render.js).
   const on = new Set();
   const listen = (list) => {
     for (const ev of list)

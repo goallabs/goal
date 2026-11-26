@@ -4,12 +4,13 @@
 //   {if (a) <p>A</p> else if (b) <p>B</p> else <p>C</p>}  if/else as a value, inside markup
 //   server function addNote(text) { ... }              runs on the server, called from the browser
 //   #strict, then name: Type and type Note = { ... }    types, in a file that starts with #strict
+//   style { .card { ... } }                             the file's CSS, scoped to what it renders
 //
 // desugar() parses the file with acorn (extended for these two forms), and rewrites them into plain
 // JavaScript + JSX with small text edits: a route becomes `async function _$r0(request, _$x) { ... }`
 // an if becomes a chain of ternaries, and a server function becomes an async function. `map` turns a position in the output back into one in the
 // source, so errors point at what the author wrote. Types are read into `types` and taken out of the
-// code (see types.js, which checks them).
+// code (see types.js, which checks them), and so is the style block, as text (see style.js).
 
 import { Parser, tokTypes as tt } from 'acorn';
 import jsx from 'acorn-jsx';
@@ -19,6 +20,21 @@ const SERVER = /^server[ \t]+function[ \t]+([A-Za-z_$][\w$]*)/;
 const SEGMENT = /^(?:[A-Za-z0-9\-._~]+|\{[A-Za-z_][A-Za-z0-9_]*(?:[ \t]*:[ \t]*(?:string|number))?\})$/;
 const STRICT = /^\s*#strict[ \t]*(?=\r?\n|$)/;
 const BASIC = new Set(['string', 'number', 'boolean', 'unknown', 'Markup', 'undefined']);
+
+/** Where a style block's CSS, from `i`, ends: its closing brace, past nested blocks, strings and comments. */
+function cssEnd(s, i) {
+  for (let depth = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '/' && s[i + 1] === '*') {
+      i = s.indexOf('*/', i + 2) + 1;
+      if (!i) return -1;
+    } else if (c === '"' || c === "'") {
+      while (++i < s.length && s[i] !== c) if (s[i] === '\\') i++;
+    } else if (c === '{') depth++;
+    else if (c === '}' && !depth--) return i;
+  }
+  return -1;
+}
 
 export class GoalError extends Error {
   constructor(message, file, line, column) {
@@ -41,6 +57,7 @@ const Base = Parser.extend(jsx());
 /**
  * @returns {{ code: string, routes: { method: string, path: string, params: string[], types: object, name: string }[],
  *   serverFns: { name: string, exported: boolean }[], map: (pos: number) => number, strict: boolean,
+ *   style: { css: string, at: number } | null,
  *   types: { decls: Map<string, { type: object, exported: boolean, at: number }>, at: Map<number, object> } }}
  *   types.at: the type written for the binding or function that starts at that source position
  */
@@ -49,6 +66,7 @@ export function desugar(source, file) {
   const routes = [];
   const serverFns = [];
   const types = { decls: new Map(), at: new Map() };
+  let style = null; // the style block: its CSS, and where that starts in the source
   const fail = (pos, message) => {
     throw errorAt(source, file, pos, message);
   };
@@ -196,6 +214,7 @@ export function desugar(source, file) {
       }
       if (topLevel && this.type === tt.name && this.value === 'route' && /^route[ \t]+[A-Z]/.test(this.input.slice(this.start)))
         return this.goalRoute();
+      if (topLevel && this.type === tt.name && this.value === 'style' && /^style[ \t]*\{/.test(this.input.slice(this.start))) return this.goalStyle();
       return super.parseStatement(context, topLevel, exports);
     }
 
@@ -227,6 +246,21 @@ export function desugar(source, file) {
       node.body = this.parseBlock(false);
       this.exitScope();
       return this.finishNode(node, 'GoalRoute');
+    }
+
+    // style { CSS }: not JavaScript, so it's read as text up to its closing brace, and taken out
+    goalStyle() {
+      const start = this.start;
+      if (style) fail(start, 'a file has one style block: put all of its CSS in it');
+      const open = this.input.indexOf('{', start);
+      const close = cssEnd(this.input, open + 1);
+      if (close < 0) fail(open, 'this style block has no closing }');
+      style = { css: this.input.slice(open + 1, close), at: open + 1 };
+      edits.push({ at: start, del: close + 1 - start, ins: '' });
+      const node = this.startNode();
+      this.pos = close + 1;
+      this.next();
+      return this.finishNode(node, 'EmptyStatement');
     }
 
     jsx_parseExpressionContainer() {
@@ -288,5 +322,5 @@ export function desugar(source, file) {
     }
     return pos - shift;
   };
-  return { code, routes, serverFns, map, strict, types };
+  return { code, routes, serverFns, map, strict, types, style };
 }

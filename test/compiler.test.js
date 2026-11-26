@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { compile, GoalError } from '../src/compiler.js';
 import { build, load } from './helpers.js';
 import { render } from '../src/server.js';
-import { _$ctx } from '../src/rt.js';
+import { _$ctx } from '../src/render.js';
+import { scopeName } from '../src/style.js';
 
 const errorOf = (src) => {
   try {
@@ -504,7 +505,9 @@ describe('keyed lists', () => {
     const { r, loadChunk } = await load(TABLE);
     const code = r.clients[0].code;
     expect(code).toContain('export const _$k = [[2, 0, _$t0, [[1, [], "class"], [0, [0]], [1, [1, 0], "href"], [0, [1, 0]]]]];');
-    expect(code).toContain('export { _$lp } from "goaljs/keyed";');
+    // one import from keyed.js: the list's helper, and the patcher and row handlers it gives the loader
+    expect(code).toContain('import { _$L, _$lp, _$lh } from "goaljs/keyed";');
+    expect(code).toContain('export { _$lp, _$lh };');
     expect(code.indexOf('const _$t0')).toBeLessThan(code.indexOf('export const _$k'));
     const m = await loadChunk('/c/T.js');
     const s = { rows: [{ id: 1, label: 'a' }], picked: 1 };
@@ -952,5 +955,29 @@ describe('errors', () => {
     })();
     expect(e.message).toBe('src/A.goal:4:3: `a` is state: change it in an event handler, not while rendering');
     expect([e.file, e.line, e.column]).toEqual(['src/A.goal', 4, 3]);
+  });
+});
+
+describe('style blocks', () => {
+  it("scope the file's CSS, and mark each element the file renders, on the server and in the browser", () => {
+    const r = build(
+      `style {\n  .card { color: red; }\n}\nexport function Card({ title, children }) { var n = 0; return <div class="card"><p onclick={() => n++}>{title}</p>{n > 1 ? <b>big</b> : null}{children}</div>; }\nroute GET / { return <main><Card title="t"><i>child</i></Card></main>; }`,
+      'ui/Card.goal',
+    );
+    const g = scopeName('ui/Card.goal');
+    expect(r.css).toBe(`\n  .card:where([${g}]) { color: red; }\n`);
+    for (const html of [`<div ${g} class="card"`, `<b ${g}>big</b>`, `<main ${g}>`, `<i ${g}>child</i>`]) expect(r.server).toContain(html); // children: the file that writes them
+    expect(r.clients[0].code).toContain(`<b ${g}>big</b>`);
+    expect(r.render).toContain(`<div ${g} class="card"`);
+  });
+
+  it('leave a file without one, or with an empty one, as it was', () => {
+    expect(build('export function A() { return <p/>; }').css).toBe('');
+    const r = build('style {\n}\nexport function A() { return <p/>; }');
+    expect([r.css, r.server.includes(' g-')]).toEqual(['', false]);
+  });
+
+  it('report a mistake in the CSS at its place in the .goal file', () => {
+    expect(errorOf('export const a = 1;\nstyle {\n  @import "x.css";\n}')).toBe('App.goal:3:3: @import goes in a stylesheet under public/, linked from the page');
   });
 });

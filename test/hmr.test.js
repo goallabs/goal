@@ -130,6 +130,14 @@ describe('live updates in goal dev', () => {
     expect(document.activeElement).toBe(document.body);
   });
 
+  it('link the stylesheets the new page links, and unlink those it no longer does', async () => {
+    const { send, next } = setup('<p>a</p>', { head: '<link rel="stylesheet" href="/style.css?v=1"><link rel="stylesheet" href="/old.css">' });
+    next.html = '<html><head><link rel="stylesheet" href="/style.css?v=9"><link rel="stylesheet" href="/c/_/style.css?v=abc"></head><body><p>b</p></body></html>';
+    send({ type: 'update', version: 'v2' });
+    await vi.waitFor(() => expect(document.querySelector('p').textContent).toBe('b'));
+    expect([...document.querySelectorAll('link')].map((l) => l.getAttribute('href'))).toEqual(['/style.css?v=1', '/c/_/style.css?v=abc']); // the kept one loads again when told
+  });
+
   it('swap a page with no focus, or whose focused element is gone, and one with no event list', async () => {
     const { send, next } = setup('<button id="b">b</button>');
     next.html = '<body><p id="one">one</p></body>';

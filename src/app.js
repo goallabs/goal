@@ -13,7 +13,8 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
-import { isHtml, _$ctx } from './rt.js';
+import { isHtml } from './rt.js';
+import { _$ctx } from './render.js';
 import { page } from './server.js';
 
 const TYPES = {
@@ -186,10 +187,11 @@ function keptState(header) {
 /**
  * A request handler for node:http.
  * @param {{ method: string, path: string, handler: Function }[]} routes
- * @param {{ dev?: boolean, staticDirs?: string[], config?: { csp?: string | false, csrf?: boolean, bodyLimit?: number, onError?: (e: Error, request?: object) => void }, log?: (e: Error) => void }} [opts]
- *   config.onError: called with each error a route or server function throws, and the request
+ * @param {{ dev?: boolean, staticDirs?: string[], config?: { csp?: string | false, csrf?: boolean, bodyLimit?: number, onError?: (e: Error, request?: object) => void }, log?: (e: Error) => void, styles?: string }} [opts]
+ *   config.onError: called with each error a route or server function throws, and the request;
+ *   styles: the URL of the app's stylesheet (the style blocks), which each page links
  */
-export function createApp(routes, { dev = false, staticDirs = [], config = {}, log = console.error } = {}) {
+export function createApp(routes, { dev = false, staticDirs = [], config = {}, log = console.error, styles } = {}) {
   const sorted = table(routes);
   const limit = config.bodyLimit ?? 1_000_000;
   return async (req, res) => {
@@ -276,7 +278,7 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
       request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, files, json: body };
       const cookie = (name, value, opts) => setCookies.push(serializeCookie(name, value, opts));
       const out = await m.route.handler(request, { ctx, redirect, json, notFound, cookie });
-      if (isHtml(out)) return send(200, HTML, page(out.s, [...ctx.ev], nonce, token, dev));
+      if (isHtml(out)) return send(200, HTML, page(out.s, [...ctx.ev], nonce, token, dev, styles));
       if (out === undefined) return send(204);
       if (out?.[REPLY]) return send(out.status, out.type, out.body, out.headers);
       throw new Error('a route returns markup, redirect(), json(), notFound() or nothing');

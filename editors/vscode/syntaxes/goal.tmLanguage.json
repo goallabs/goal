@@ -19,6 +19,9 @@
         },
         {
           "include": "#server-function"
+        },
+        {
+          "include": "#style"
         }
       ]
     },
@@ -34,6 +37,30 @@
     }
   },
   "repository": {
+    "style": {
+      "comment": "style { ... }: the file's CSS, scoped to what it renders. Highlighted as CSS; CSS's own blocks end before the block's }",
+      "begin": "^\\s*(style)\\s*(\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.style.goal"
+        },
+        "2": {
+          "name": "punctuation.section.style.begin.goal"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.style.end.goal"
+        }
+      },
+      "contentName": "source.css",
+      "patterns": [
+        {
+          "include": "source.css"
+        }
+      ]
+    },
     "strict": {
       "comment": "#strict on the first line: the file's types are checked",
       "match": "\\A\\s*(#strict)(?=[ \\t]*$)",

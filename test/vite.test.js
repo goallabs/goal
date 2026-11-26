@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createServer } from 'vite';
 import { goal } from '../src/vite.js';
 import { TMP, fakePostcss } from './helpers.js';
+import { scopeName } from '../src/style.js';
 
 const dir = join(TMP, `vite${process.pid}`);
 const files = {
@@ -126,6 +127,36 @@ describe('the Vite plugin', () => {
     writeFileSync(join(dir, 'postcss.config.js'), 'export default { plugins: [() => { throw new Error("bad css"); }] };');
     expect((await fetch(url + '/style.css')).status).toBe(500); // Vite shows the error
     rmSync(join(dir, 'postcss.config.js'));
+  });
+
+  it('links one stylesheet of the style blocks, through PostCSS, and tells the pages it changes with the code', async () => {
+    writeFileSync(join(dir, 'styled.goal'), 'style {\n  p { margin: 0 }\n}\nroute GET /styled { return <html><head></head><body><p>s</p></body></html>; }');
+    const g = scopeName('styled.goal');
+    expect(await (await fetch(url + '/styled')).text()).toMatch(new RegExp(`<link rel="stylesheet" href="/_goal/style.css\\?v=\\d+"></head><body ${g}><p ${g}>s</p>`));
+    const res = await fetch(url + '/_goal/style.css?v=1');
+    expect(res.headers.get('content-type')).toBe('text/css; charset=utf-8');
+    expect(await res.text()).toBe(`/* styled.goal */\np:where([${g}]) { margin: 0 }\n`);
+    const events = await fetch(url + '/_goal/hmr');
+    const reader = events.body.getReader();
+    let text = '';
+    plugin.handleHotUpdate({ file: join(dir, 'styled.goal'), server });
+    while ((text.match(/data: /g) ?? []).length < 2) text += new TextDecoder().decode((await reader.read()).value);
+    expect(text.match(/"type":"\w+"/g)).toEqual(['"type":"update"', '"type":"css"']);
+    fakePostcss(dir);
+    writeFileSync(join(dir, 'postcss.config.js'), 'export default { plugins: { mark: {} } };');
+    expect(await (await fetch(url + '/_goal/style.css')).text()).toBe(`/* styled.goal */\np:where([${g}]) { margin: 0 }\n/* {} map style.css */`);
+    writeFileSync(join(dir, 'postcss.config.js'), 'export default { plugins: [() => { throw new Error("bad css"); }] };');
+    const bad = await fetch(url + '/_goal/style.css');
+    expect([bad.status, await bad.text()]).toEqual([500, 'bad css']);
+    rmSync(join(dir, 'postcss.config.js'));
+    rmSync(join(dir, 'styled.goal')); // gone: no more stylesheet, and an update doesn't say it changed
+    server.moduleGraph.invalidateAll();
+    expect(await (await fetch(url + '/')).text()).not.toContain('/_goal/style.css');
+    plugin.handleHotUpdate({ file: join(dir, 'ui/Counter.goal'), server });
+    text = '';
+    while (!text.includes('data: ')) text += new TextDecoder().decode((await reader.read()).value);
+    expect(text.match(/"type":"\w+"/g)).toEqual(['"type":"update"']);
+    reader.cancel();
   });
 
   it("works without a .env", () => {

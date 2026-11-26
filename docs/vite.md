@@ -32,6 +32,8 @@ The app works as it does under `goal dev`:
   error shows over the page.
 - With a `postcss.config.js`, the stylesheets in `public/` go through PostCSS, as they do in
   `goal dev`, and the app's `.env` is read into `process.env` (see [Tools](tools)).
+- The files' [style blocks](components#styles) are one stylesheet, `/_goal/style.css`, which each
+  page links.
 - [Vitest](tools) uses the plugin too, so tests can import `.goal` files.
 
 The plugin is for development. For production, build and serve the app with `goal build` and

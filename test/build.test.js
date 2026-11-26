@@ -5,6 +5,7 @@ import { gzipSync } from 'node:zlib';
 import { build, serve, dev, check } from '../src/build.js';
 import { main, args } from '../src/cli.js';
 import { TMP, fakePostcss } from './helpers.js';
+import { scopeName } from '../src/style.js';
 
 let n = 0;
 /** A fresh copy of an app: the demo, or the files given. */
@@ -74,7 +75,7 @@ describe('build', () => {
     expect(r.loader).toBeGreaterThan(0);
     expect(readFileSync(join(dir, 'dist/server/app.js'), 'utf8')).toContain(`from './components/Counter.js?v=${r.version}'`);
     expect(readFileSync(join(dir, 'dist/server/_routes.js'), 'utf8')).toBe(
-      `import { _$routes as r0 } from './app.js?v=${r.version}';\nimport { _$routes as r1 } from './components/Board.js?v=${r.version}';\nexport default [...r0, ...r1];\n`,
+      `import { _$routes as r0 } from './app.js?v=${r.version}';\nimport { _$routes as r1 } from './components/Board.js?v=${r.version}';\nexport default [...r0, ...r1];\nexport const styles = "${r.styles.url}";\n`,
     );
     expect(existsSync(join(dir, 'dist/public/style.css'))).toBe(true);
     expect(existsSync(join(dir, 'dist/server/notes.txt'))).toBe(false);
@@ -139,6 +140,38 @@ describe('build', () => {
     expect(readFileSync(join(dir, 'dist/public/style.css'), 'utf8')).toBe('p {}/* {} map style.css */'); // source maps in goal dev
     rmSync(join(dir, 'public'), { recursive: true });
     expect((await build(dir)).css).toBe(true);
+  });
+
+  it("puts the files' style blocks in one stylesheet, which each page links, named by its content", async () => {
+    const dir = app({
+      'app.goal': "import { C } from './ui/C.goal';\nstyle {\n  main { margin: 0 }\n}\nroute GET / { return <html><head><title>t</title></head><body><main><C /></main></body></html>; }",
+      'ui/C.goal': `style {\n  b { color: red; }\n  b:hover { color: blue; }\n}\n${COUNTER}`,
+      'ui/Plain.goal': 'export function P() { return <i/>; }',
+    });
+    const [a, c] = [scopeName('app.goal'), scopeName('ui/C.goal')];
+    const log = [];
+    expect(await main(['build', dir], (m) => log.push(m))).toBe(0);
+    const css = readFileSync(join(dir, 'dist/client/c/_/style.css'), 'utf8');
+    expect(css).toBe(`main:where([${a}]){margin:0}b:where([${c}]){color:red}b:hover:where([${c}]){color:#00f}\n`); // minified
+    expect(log).toContain(`/c/_/style.css  ${Buffer.byteLength(css)} B, ${gzipSync(css).length} B gzipped (the style blocks)`);
+    const r = await build(dir);
+    expect(r.styles).toEqual({ url: expect.stringMatching(/^\/c\/_\/style\.css\?v=[0-9a-f]{10}$/), bytes: Buffer.byteLength(css), gzip: gzipSync(css).length });
+    expect(readFileSync(join(dir, 'dist/server/_routes.js'), 'utf8')).toContain(`export const styles = "${r.styles.url}";\n`);
+    const url = listen(await serve(dir, { port: 0 }));
+    expect(await (await fetch(url + '/')).text()).toContain(`<html ${a}><head><title>t</title><link rel="stylesheet" href="${r.styles.url}"></head><body ${a}><main ${a}><b ${c} m-on="click:0" m-c=`);
+    expect(await (await fetch(url + r.styles.url)).text()).toBe(css);
+    await build(dir, { dev: true }); // readable in goal dev, with each file named
+    expect(readFileSync(join(dir, 'dist/client/c/_/style.css'), 'utf8')).toBe(
+      `/* app.goal */\nmain:where([${a}]) { margin: 0 }\n/* ui/C.goal */\nb:where([${c}]) { color: red; }\n  b:hover:where([${c}]) { color: blue; }\n`,
+    );
+    expect((await build(app({ 'app.goal': 'route GET / { return <p/>; }' }))).styles).toBe(null);
+  });
+
+  it("runs the stylesheet of the style blocks through the app's PostCSS too", async () => {
+    const dir = app({ 'app.goal': 'style {\n  p { margin: 0 }\n}\nroute GET / { return <p/>; }', 'postcss.config.js': 'export default { plugins: { mark: {} } };' });
+    fakePostcss(dir);
+    await build(dir, { dev: true });
+    expect(readFileSync(join(dir, 'dist/client/c/_/style.css'), 'utf8')).toBe(`/* app.goal */\np:where([${scopeName('app.goal')}]) { margin: 0 }\n/* {} map style.css */`);
   });
 
   it('keeps dev chunks readable with source maps, under a public path', async () => {
@@ -292,6 +325,24 @@ describe('dev', () => {
   }, 20000);
 });
 
+describe('style blocks in goal dev', () => {
+  it('tell the pages the stylesheet changed after code did', async () => {
+    const dir = app({ 'app.goal': 'style {\n  p { margin: 0 }\n}\nroute GET / { return <p>one</p>; }' });
+    const url = listen(await dev(dir, { port: 0, log: () => {} }));
+    expect(await (await fetch(url + '/')).text()).toMatch(/<link rel="stylesheet" href="\/c\/_\/style\.css\?v=\w+"><\/head>/);
+    const res = await fetch(`${url}/_goal/hmr`);
+    const reader = res.body.getReader();
+    let text = '';
+    while ((text.match(/data: /g) ?? []).length < 2) {
+      if (!text) writeFileSync(join(dir, 'app.goal'), 'style {\n  p { margin: 1px }\n}\nroute GET / { return <p>two</p>; }');
+      text += new TextDecoder().decode((await reader.read()).value);
+    }
+    expect(text.match(/"type":"\w+"/g)).toEqual(['"type":"update"', '"type":"css"']);
+    reader.cancel();
+    expect(await (await fetch(url + '/c/_/style.css?v=2')).text()).toContain('margin: 1px');
+  }, 20000);
+});
+
 describe('goal check', () => {
   const B = '#strict\nexport type Note = { text: string };\nexport function Card({ note }: { note: Note }) { return <p>{note.text}</p>; }';
   it('checks every file, #strict ones against what they import, and builds them', async () => {
@@ -341,6 +392,7 @@ describe('cli', () => {
     expect(out).toContain('GET /users/{name}\n');
     expect(out).toContain('server function addNote  POST /_m/components/Board/addNote');
     expect(out).toMatch(/\/c\/components\/Counter\.Counter\.js {2}\d+ B, \d+ B gzipped$/m);
+    expect(out).toMatch(/^\/c\/_\/style\.css {2}\d+ B, \d+ B gzipped \(the style blocks\)$/m);
     expect(out).toMatch(/loader {2}\d+ B gzipped, inline/);
   });
 

@@ -6,6 +6,19 @@
 
 import { into } from './rt.js';
 
+/** A keyed list in the browser: its rows, and `h(item, index)`, the handlers of one row. */
+export const _$L = (rows, h) => ((rows.h = h), rows);
+
+/** Runs a list row's handler `h` ("r0"): which row is it, counting from the list's start marker? */
+export function _$lh(el, root, x, h, e) {
+  const row = el.closest('[m-r]');
+  const n = row.getAttribute('m-r');
+  let i = 0;
+  for (let s = row.previousSibling; s.data !== `${root.getAttribute('m-i')}.${n}`; s = s.previousSibling) i++; // rows are all elements
+  const list = x[0][n];
+  return list.h(list[i][1], i)[h.slice(1)](e); // its index now: a kept row may have moved
+}
+
 const set = (el, name, v, off = v == null || v === false) =>
   name === 'value' ? (el.value = off ? '' : v)
   : name === 'checked' ? (el.checked = !off)

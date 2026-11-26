@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, page, loaderScript, hmrScript } from '../src/server.js';
-import { _$ctx } from '../src/rt.js';
+import { _$ctx } from '../src/render.js';
 
 describe('server', () => {
   it('renders a component with default props and a fresh context', () => {
@@ -14,6 +14,17 @@ describe('server', () => {
     expect(page('<p>hi</p>', [], 'n')).toBe(
       '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>goal.js</title></head><body><p>hi</p></body></html>',
     );
+  });
+
+  it("links the app's stylesheet at the end of the head, after the page's own", () => {
+    const css = '/c/_/style.css?v=a&b';
+    const link = '<link rel="stylesheet" href="/c/_/style.css?v=a&amp;b">';
+    expect(page('<html><head><link rel="stylesheet" href="/style.css"></head><body>x</body></html>', [], 'n', '', false, css)).toBe(
+      `<!doctype html><html><head><link rel="stylesheet" href="/style.css">${link}</head><body>x</body></html>`,
+    );
+    expect(page('<html lang="en"><body>x</body></html>', [], 'n', '', false, css)).toBe(`<!doctype html><html lang="en">${link}<body>x</body></html>`);
+    expect(page('<p>x</p>', [], 'n', '', false, css)).toContain(`<title>goal.js</title>${link}</head>`);
+    expect(page('<p>x</p>', [], 'n')).not.toContain('<link');
   });
 
   it('uses a document the route wrote, and puts the loader before </body> with the nonce', () => {

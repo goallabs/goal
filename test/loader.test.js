@@ -276,7 +276,7 @@ describe('patching', () => {
 
 describe('server function calls', () => {
   it('send the arguments and the page token, and return the value', async () => {
-    const { _$sf } = await import('../src/rt.js');
+    const { _$sf } = await import('../src/call.js');
     const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ v: 42 }) }));
     vi.stubGlobal('fetch', fetch);
     document.head.innerHTML = '<meta name="goal-csrf" content="tok">';

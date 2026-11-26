@@ -80,3 +80,15 @@ describe('ESLint for .goal files', () => {
     expect(blocks.rules['no-var']).toBe('off');
   });
 });
+
+describe('ESLint and style blocks', () => {
+  it("leaves the CSS out, and reports what's after it where it is", () => {
+    const src = "style {\n  .a { color: red; }\n  b { margin: 0 }\n}\nexport function A() {\n  return <p>{missing}</p>;\n}\n";
+    const [block] = preprocess(src, 'S.goal');
+    expect(block.text).not.toContain('color');
+    const w = at(block.text, 'missing');
+    const [m] = postprocess([[{ ruleId: 'no-undef', message: "'missing' is not defined.", line: w.line, column: w.column, endLine: w.line, endColumn: w.column + 7 }]], 'S.goal');
+    expect(place(m)).toEqual(place(at(src, 'missing')));
+    expect([m.endLine, m.endColumn]).toEqual([6, 21]);
+  });
+});

@@ -8,6 +8,12 @@ import { Groceries } from './components/Groceries.goal';
 import { Temperature } from './components/Temperature.goal';
 import { Escaping } from './components/Escaping.goal';
 
+// Each file's style block styles only the markup that file renders. Here: the descriptions this file
+// writes inside each <Card>. The page-wide rules are in public/style.css.
+style {
+  .example > p { margin: 0.25rem 0; color: #555; }
+}
+
 const notes = [];
 
 function layout(title, body) {
@@ -85,6 +91,7 @@ route GET /examples {
     'Examples',
     <main>
       <h1>Examples</h1>
+      <p>Each example's CSS is in a style block in its own file, and styles only what that file renders.</p>
       <Card title="Components inside components">
         <p>Feedback keeps the rating. Rating shows it, and calls Feedback back through a function prop.</p>
         <Feedback />

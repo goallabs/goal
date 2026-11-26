@@ -151,6 +151,35 @@ When `Picker` calls `onpick`, the parent's state changes and the parent updates,
 an event itself. Call a function prop from an event handler, not while rendering: on the server it does
 nothing.
 
+## Styles
+
+A `style` block holds a file's CSS. It styles only the markup that file renders:
+
+```jsx
+style {
+  .card { border: 1px solid #ccc; border-radius: 8px; }
+  strong { color: #1d4ed8; }
+}
+
+export function Counter({ start = 0 }) {
+  var count = start;
+  return <div class="card"><strong>{count}</strong></div>;
+}
+```
+
+- Each element the file renders carries the file's scope, an attribute like `g-x7k2pq`, and each
+  selector gets it on its last part: `.card strong` styles a `<strong>` this file renders, inside any
+  `.card`. The scope adds no specificity, so a selector weighs what it does as written.
+- Markup given to a component as children belongs to the file that writes it, and so do its styles.
+  A parent styles what it passes in; the child styles its own markup.
+- Rules inside `@media`, `@supports`, `@container` and `@layer` are scoped too, and so are nested
+  rules. `@keyframes` and `@font-face` are kept as written, and their names are the page's.
+- A file has one style block, at its top level. `@import` doesn't go in one: put page-wide CSS in a
+  stylesheet under `public/` and link it.
+- `goal build` puts every file's style block in one stylesheet, `/c/_/style.css`, and each page links
+  it at the end of its head, after the page's own stylesheets. With a `postcss.config.js`, it goes
+  through PostCSS too. There is no inline style, so the strict Content-Security-Policy stays.
+
 ## Compile errors
 
 Breaking a rule is a compile error with the file, line and column:

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
-import { tokenize, scopesOf, TSX_GRAMMAR } from './tokens.mjs';
+import { tokenize, scopesOf, TSX_GRAMMAR, CSS_GRAMMAR } from './tokens.mjs';
 import { EXAMPLES, EXAMPLES_DIR } from './examples.mjs';
 
 const skip = TSX_GRAMMAR ? false : "VS Code's JavaScriptReact grammar wasn't found (set GOAL_TSX_GRAMMAR)";
@@ -24,6 +24,22 @@ test('route: keyword, method, path and {params}', { skip }, async () => {
 test('route: only as a statement, not in strings, comments or markup', { skip }, async () => {
   const lines = await tokenize('const s = `\nroute GET /x {`;\n// route GET /y {\nconst m = <p>\nroute GET /z {\n</p>;');
   for (const l of lines) for (const t of l) assert.ok(!t.scopes.some((s) => s.endsWith('route.goal')), JSON.stringify(t));
+});
+
+test('style block: CSS inside, up to its own }, then the file goes on', { skip: skip || (!CSS_GRAMMAR && "VS Code's CSS grammar wasn't found") }, async () => {
+  const lines = await tokenize('style {\n  .card { color: red; }\n  @media (min-width: 1px) { p { margin: 0 } }\n}\nexport function A() { return <p />; }');
+  assert.equal(inner(scopesOf(lines, 'style')), 'storage.type.style.goal');
+  assert.ok(scopesOf(lines, 'color').includes('source.css'));
+  assert.equal(inner(scopesOf(lines, 'color')), 'support.type.property-name.css');
+  assert.equal(inner(scopesOf(lines, 'card')), 'entity.other.attribute-name.class.css');
+  assert.equal(inner(scopesOf(lines, '}', 3)), 'punctuation.section.style.end.goal');
+  assert.equal(inner(scopesOf(lines, 'function', 4)), 'storage.type.function.tsx');
+  assert.ok(!scopesOf(lines, 'function', 4).includes('source.css'));
+});
+
+test('style: only as a statement, not as a name', { skip }, async () => {
+  const lines = await tokenize('const style = { a: 1 };\nstyle.a = 2;');
+  for (const l of lines) for (const t of l) assert.ok(!t.scopes.some((s) => s.endsWith('style.goal') || s === 'source.css'), JSON.stringify(t));
 });
 
 test('server function, exported or not', { skip }, async () => {

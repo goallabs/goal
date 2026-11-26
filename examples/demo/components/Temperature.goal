@@ -2,6 +2,10 @@
 // A #strict file is type-checked: goal check, goal build and the editor say where a value isn't of
 // its type. Computed values (let and const) are worked out again from the state on each run.
 
+style {
+  input[type='range'] { width: 100%; }
+}
+
 export function Temperature() {
   var celsius: number = 20;
   const fahrenheit = Math.round((celsius * 9) / 5 + 32);

@@ -1,6 +1,11 @@
 // A keyed list: when the list changes, each row is found by its key (x.id), so a row that stays
 // keeps its nodes, and only what changed in it is written.
 
+style {
+  .filters button[aria-pressed='true'] { font-weight: bold; }
+  .bought label { text-decoration: line-through; color: #888; }
+}
+
 export function Groceries() {
   var items = [
     { id: 1, name: 'Bread', bought: false },

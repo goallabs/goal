@@ -20,6 +20,9 @@ const CANDIDATES = [
 /** Where VS Code's TypeScript React grammar is, or undefined. */
 export const TSX_GRAMMAR = CANDIDATES.find((p) => p && existsSync(p));
 
+/** VS Code's CSS grammar, from the same install, or undefined. */
+export const CSS_GRAMMAR = [TSX_GRAMMAR?.replace(/typescript-basics[\\/]syntaxes[\\/]TypeScriptReact\.tmLanguage\.json$/, 'css/syntaxes/css.tmLanguage.json')].find((p) => p && existsSync(p));
+
 let registry;
 function load() {
   const wasm = readFileSync(join(dirname(require.resolve('vscode-oniguruma')), 'onig.wasm')).buffer;
@@ -30,6 +33,7 @@ function load() {
   const files = {
     'source.goal': join(HERE, '..', 'syntaxes', 'goal.tmLanguage.json'),
     'source.tsx': TSX_GRAMMAR,
+    'source.css': CSS_GRAMMAR, // for style blocks
   };
   return new vsctm.Registry({
     onigLib: lib,

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { _$e, _$m, _$h, _$a, _$u, _$pa, _$ctx, _$f, Html } from '../src/rt.js';
+import { _$e, _$m, _$h, _$a, _$u, Html } from '../src/rt.js';
+import { _$pa, _$ctx, _$f } from '../src/render.js';
 
 describe('rt helpers', () => {
   it('escapes text and attributes', () => {

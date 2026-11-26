@@ -65,6 +65,12 @@ export function hmr(d, w, connect = (url) => new w.EventSource(url)) {
     const { scrollX: x, scrollY: y } = w;
     const focused = spot();
     d.title = next.title;
+    // The stylesheets the new page links and this one doesn't, as when a first style block appears,
+    // and the other way round. The rest stay, and load again when told (see below).
+    const sheets = (doc) => new Map([...doc.querySelectorAll('link[rel="stylesheet"]')].map((l) => [l.getAttribute('href').split('?')[0], l]));
+    const [had, has] = [sheets(d), sheets(next)];
+    for (const [href, l] of had) if (!has.has(href)) l.remove();
+    for (const [href, l] of has) if (!had.has(href)) d.head.append(d.adoptNode(l));
     d.body.replaceWith(d.adoptNode(next.body));
     w.scrollTo(x, y);
     if (focused) refocus(focused);

@@ -18,7 +18,9 @@ app's, and `goal start` reads it from there.
 ## Escaping
 
 Every value is escaped in text and in attributes. There is no raw-HTML escape hatch. `<script>`,
-`<style>`, `srcdoc` and string event handlers (`onclick="..."`) are compile errors.
+`<style>`, `srcdoc` and string event handlers (`onclick="..."`) are compile errors. A file's CSS goes
+in its [style block](components#styles), which `goal build` puts in a stylesheet of its own, so pages
+need no inline styles.
 
 ## URLs
 

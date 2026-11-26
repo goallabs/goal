@@ -55,7 +55,8 @@ Next:
 ## Notes on each tool
 
 **Tailwind CSS and PostCSS.** When an app has a `postcss.config.js`, `goal dev` and `goal build` run
-every stylesheet in `public/` through it, and so does the [Vite plugin](vite). PostCSS and its plugins
+every stylesheet in `public/` through it, and the stylesheet of the files'
+[style blocks](components#styles) too, and so does the [Vite plugin](vite). PostCSS and its plugins
 come from the app's own `node_modules`. Tailwind CSS finds its classes in your `.goal` files. In
 `goal dev`, a class you add to a `.goal` file is styled as soon as you save it, without a reload.
 

@@ -2,6 +2,11 @@
 // when it changes, Rating is rendered again in the browser. Rating tells its parent with a function
 // prop (onrate), which runs as one of Feedback's handlers.
 
+style {
+  .stars { margin: 0.25rem 0; }
+  .stars button { font-size: 1.4rem; line-height: 1; background: none; border: 0; padding: 0 0.1rem; cursor: pointer; color: #b45309; }
+}
+
 export function Feedback() {
   var stars = 0;
 

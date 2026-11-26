@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'esbuild';
-import { _$ctx, _$e } from './rt.js';
+import { _$e } from './rt.js';
+import { _$ctx } from './render.js';
 
 /** Renders a compiled component to HTML, with the events its page needs to listen to. */
 export function render(Component, props = {}, ctx = _$ctx()) {
@@ -33,16 +34,20 @@ export function hmrScript() {
  * A whole HTML document. Markup that starts with <html> is the document itself; anything else goes
  * in a plain one. The loader goes in only when there are events, with the request's CSP nonce, and
  * the CSRF token that server function calls send. In goal dev (`dev`), every page also gets the
- * live updates, and the events it listens for, which an update compares.
+ * live updates, and the events it listens for, which an update compares. `styles`, the app's
+ * stylesheet, is linked at the end of the head, so its rules come after the page's own stylesheets.
  */
-export function page(html, events, nonce, token = '', dev = false) {
+export function page(html, events, nonce, token = '', dev = false, styles = null) {
+  const link = styles ? `<link rel="stylesheet" href="${_$e(styles)}">` : '';
   let script = events.length
     ? `<meta name="goal-csrf" content="${_$e(token)}"><script type="module" nonce="${nonce}">${loaderScript().replace(EVENTS, JSON.stringify(events))}</script>`
     : '';
   if (dev) script += `<meta name="goal-events" content="${_$e(JSON.stringify(events))}"><script type="module" nonce="${nonce}">${hmrScript()}</script>`;
   if (/^<html[\s>]/.test(html)) {
+    const h = html.indexOf('</head>');
+    if (link) html = h < 0 ? html.replace(/^<html[^>]*>/, (m) => m + link) : html.slice(0, h) + link + html.slice(h);
     const i = html.lastIndexOf('</body>');
     return '<!doctype html>' + (i < 0 ? html + script : html.slice(0, i) + script + html.slice(i));
   }
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>goal.js</title></head><body>${html}${script}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>goal.js</title>${link}</head><body>${html}${script}</body></html>`;
 }

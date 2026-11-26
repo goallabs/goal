@@ -33,17 +33,24 @@ import * as t from '@babel/types';
 import { desugar, errorAt, GoalError } from './syntax.js';
 import { URL_ATTRS, _$u } from './rt.js';
 import { check } from './types.js';
+import { scopeName, scopeCss } from './style.js';
 
 export { exportsOf } from './types.js'; // what a .goal file gives a #strict file importing it: for the editor too
 
 export { GoalError };
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
-const HELPERS = ['_$m', '_$h', '_$a', '_$e', '_$u', '_$pa', '_$ctx', '_$sf', '_$call', '_$hl', '_$L', '_$B', '_$f'];
+const UNSEEN = new Set(['head', 'title', 'meta', 'link', 'base']); // never shown, so a style block's scope leaves them out
+// Where each helper is. rt.js has what nearly every component needs; the others are files of their
+// own next to it, so the browser loads them only for components that use them (the bundler splits
+// by file): render.js for rendering components, call.js for server function calls, keyed.js for
+// keyed lists, which only browser code imports.
+const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], keyed: ['_$L'] };
 const ROUTE_HELPERS = ['redirect', 'json', 'notFound', 'cookie'];
 const FORM_METHODS = ['get', 'post', 'put', 'patch', 'delete'];
 
 let SRC; // the file being compiled: { source, file }
+let SCOPE; // its scope attribute, which each element it renders carries, when it has a style block
 
 /** An error at a node; positions are already in the .goal source (see relocate). */
 function fail(message, node) {
@@ -84,7 +91,7 @@ function emit(node) {
  *   typesOf?: (specifier: string) => object | null }} [opts]
  *   file: the name in errors and source maps; base: the file's path without .goal, which names its
  *   server functions' URLs (/_m/<base>/<name>); rt and keyed: where compiled code imports the helpers
- *   and the keyed list patcher from;
+ *   and the keyed list patcher from (render.js and call.js, the other helpers, sit next to rt);
  *   chunk: the URL the browser loads a component's client module from; serverFunctions: the server
  *   functions another .goal file exports, for imports of it; dev: for goal dev, where a component
  *   rendered for a live update starts from the state the page kept (see hmr.js).
@@ -95,6 +102,10 @@ export function compile(source, opts = {}) {
   const o = { file, rt: opts.rt ?? 'goaljs/rt', keyed: opts.keyed ?? 'goaljs/keyed', chunk: opts.chunk ?? ((n) => `/${n}.js`), dev: !!opts.dev, sfns: new Map() };
   const d = desugar(source, file);
   SRC = { source, file };
+  SCOPE = d.style?.css.trim() ? scopeName(file) : null;
+  const css = SCOPE ? scopeCss(d.style.css, SCOPE, (pos, message) => {
+        throw errorAt(source, file, d.style.at + pos, message);
+      }) : '';
   const ast = parse(d.code, { sourceType: 'module', plugins: ['jsx'] });
   relocate(ast, source, d.map, file.split('/').at(-1)); // source maps name the file next to the compiled one
   const typed = d.strict ? check(ast, d, opts.typesOf, fail) : null; // types: what other .goal files export comes from typesOf
@@ -121,7 +132,7 @@ export function compile(source, opts = {}) {
   }
 
   const body = server.program;
-  body.unshiftContainer('body', importHelpers(o.rt));
+  body.unshiftContainer('body', importHelpers(o));
   const endpoints = d.serverFns.map((f) => ({ name: f.name, path: o.sfns.get(f.name) }));
   if (d.routes.length || endpoints.length)
     body.pushContainer(
@@ -154,6 +165,7 @@ export function compile(source, opts = {}) {
     components: server.components.map(({ name, interactive, events }) => ({ name, interactive, events })),
     routes: d.routes.map(({ method, path }) => ({ method, path })),
     serverFunctions: endpoints,
+    css,
   };
 }
 
@@ -534,7 +546,7 @@ function element(p, cx, top, root, row) {
   if (tag === 'script') fail("<script> isn't allowed: goal.js writes the page's scripts. Put the code in a component", p.node);
   if (tag === 'style') fail('put CSS in a file under public/ and link it: <link rel="stylesheet" href="/style.css" />', p.node);
 
-  const parts = ['<' + tag];
+  const parts = ['<' + tag + (SCOPE && !UNSEEN.has(tag) ? ' ' + SCOPE : '')];
   const ons = []; // m-on entries: "click:0" for a fixed handler, or parts that number one made while rendering
   let id;
   let method;
@@ -693,7 +705,7 @@ function hole(c, cx, top, parts) {
 const owner = (cx, always) => {
   if (!cx.own && !always) return [];
   if (cx.mode !== 'client') return ['@', cx.iId];
-  cx.b = true; // rendered in the browser: the instance running now (rt.js)
+  cx.b = true; // rendered in the browser: the instance running now (render.js)
   return ['@', t.callExpression(t.memberExpression(t.memberExpression(t.identifier('_$B'), t.identifier('r')), t.identifier('getAttribute')), [t.stringLiteral('m-i')])];
 };
 
@@ -970,9 +982,16 @@ function template(parts) {
 // ---------------------------------------------------------------------------------------------
 // Client modules.
 
-function importHelpers(rt) {
-  return t.importDeclaration(HELPERS.map((h) => t.importSpecifier(t.identifier(h), t.identifier(h))), t.stringLiteral(rt));
+/** The helpers' imports: from each file, all of them (the browser's modules drop those they don't use). */
+function importHelpers(o, browser) {
+  const from = { rt: o.rt, render: beside(o.rt, 'render'), call: beside(o.rt, 'call'), keyed: o.keyed };
+  return Object.entries(HELPERS)
+    .filter(([f]) => browser || f !== 'keyed')
+    .map(([f, names]) => t.importDeclaration(names.map((h) => t.importSpecifier(t.identifier(h), t.identifier(h))), t.stringLiteral(from[f])));
 }
+
+/** A helpers file next to rt.js: goaljs/rt → goaljs/render, …/src/rt.js → …/src/render.js. */
+const beside = (rt, name) => rt.replace(/rt(\.js)?$/, `${name}$1`);
 
 /** Components imported from a .goal file render in the browser from its render module (see renderModule). */
 function renderImport(s) {
@@ -990,7 +1009,7 @@ function renderModule(ast, o, routes, keys) {
   for (const c of r.components) c.keys.elements.push(...(keys.get(c.name) ?? []).map((k) => t.stringLiteral(k)));
   const names = new Set(r.components.map((c) => c.name));
   const server = new Set([...routes.map((x) => x.name), ...o.own]);
-  const body = [importHelpers(o.rt)];
+  const body = importHelpers(o, true);
   for (const s of r.program.node.body) {
     const d = t.isExportNamedDeclaration(s) || t.isExportDefaultDeclaration(s) ? s.declaration : s;
     if (t.isFunctionDeclaration(d) && server.has(d.id.name)) continue;
@@ -1003,7 +1022,7 @@ function renderModule(ast, o, routes, keys) {
 }
 
 function clientModule(program, info, o) {
-  const body = [importHelpers(o.rt)];
+  const body = importHelpers(o, true);
   const others = []; // the file's other components: it renders them from the file's render module
   let comp;
   for (const s of program.node.body) {
@@ -1015,13 +1034,15 @@ function clientModule(program, info, o) {
   }
   body.push(...info.tpls.map((x) => t.cloneNode(x, true)), ...clientComponent(comp, info)); // row templates before _$k reads them
   if (others.length) body.splice(1, 0, t.importDeclaration(others.map((n) => t.importSpecifier(t.identifier(n), t.identifier(n))), t.stringLiteral(`goal-render:./${o.file.split('/').at(-1)}`)));
-  if (info.b) body.push(t.exportNamedDeclaration(null, [t.exportSpecifier(t.identifier('_$B'), t.identifier('_$B'))], t.stringLiteral(o.rt))); // the loader gives renders the state they keep
+  if (info.b) body.push(t.exportNamedDeclaration(null, [t.exportSpecifier(t.identifier('_$B'), t.identifier('_$B'))], t.stringLiteral(beside(o.rt, 'render')))); // the loader gives renders the state they keep
   if (info.binds.some((b) => b.k[0] === 0)) body.push(t.exportNamedDeclaration(null, [t.exportSpecifier(t.identifier('_$hm'), t.identifier('_$hm'))], t.stringLiteral(o.rt)));
-  if (info.binds.some((b) => b.k[0] === 2))
-    body.push(
-      t.exportNamedDeclaration(null, [t.exportSpecifier(t.identifier('_$lp'), t.identifier('_$lp'))], t.stringLiteral(o.keyed)),
-      t.exportNamedDeclaration(null, [t.exportSpecifier(t.identifier('_$lh'), t.identifier('_$lh'))], t.stringLiteral(o.rt)),
-    );
+  if (info.binds.some((b) => b.k[0] === 2)) {
+    // The list patcher and the row handlers, for the loader: in the one import from keyed.js, which
+    // the bundler keeps as written (it's a file of its own, next to the chunks)
+    const names = ['_$lp', '_$lh'].map((n) => t.identifier(n));
+    body.find((s) => s.source?.value === o.keyed).specifiers.push(...names.map((n) => t.importSpecifier(n, n)));
+    body.push(t.exportNamedDeclaration(null, names.map((n) => t.exportSpecifier(n, n))));
+  }
   const file = t.file(t.program(body));
   const prog = programPath(file);
   const fn = prog.get('body').find((s) => s.isExportDefaultDeclaration()).get('declaration');

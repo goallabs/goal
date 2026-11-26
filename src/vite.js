@@ -12,7 +12,8 @@
 // are never served. When a file changes, the open pages are told as goal dev tells them (see hmr.js):
 // a stylesheet is swapped in place, and code renders the page again with each component's state.
 // With a postcss.config.js, the stylesheets in public/ go through PostCSS as goal build's do (see
-// css.js), and the app's .env is read into process.env as goal dev reads it.
+// css.js), and the app's .env is read into process.env as goal dev reads it. The files' style blocks
+// are one stylesheet, /_goal/style.css, which each page links.
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
@@ -44,6 +45,7 @@ export function goal({ config = {} } = {}) {
   let root;
   let version = 1; // in the URL of each component's module: a page updated live loads the new code
   const pages = new Set(); // the pages listening for live updates
+  const sheets = new Map(); // each .goal file's style block, scoped, as it was last compiled
   const tell = (m) => {
     for (const res of pages) res.write(`data: ${JSON.stringify(m)}\n\n`);
   };
@@ -92,7 +94,9 @@ export function goal({ config = {} } = {}) {
     transform(source, id, opts) {
       if (!id.endsWith('.goal')) return;
       if (!opts?.ssr) throw new Error(`browser code can't import the .goal file ${slash(relative(root, id))}; move shared helpers into a .js file`);
-      return build(id, source).server;
+      const r = build(id, source);
+      sheets.set(slash(relative(root, id)), r.css);
+      return r.server;
     },
     configureServer(server) {
       // Before Vite's own middleware: the .goal files stay on the server, as with goal build.
@@ -121,14 +125,28 @@ export function goal({ config = {} } = {}) {
             req.on('close', () => pages.delete(res));
             return;
           }
+          // Every .goal file, through the SSR loader, which compiles each one again after a change
+          const all = goals(root, root).sort();
           let routes;
           try {
-            routes = (await Promise.all(goals(root, root).map((f) => server.ssrLoadModule(`/${f}`)))).flatMap((m) => m._$routes ?? []);
+            routes = (await Promise.all(all.map((f) => server.ssrLoadModule(`/${f}`)))).flatMap((m) => m._$routes ?? []);
           } catch (e) {
             res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
             return res.end(e.message); // a compile error: the page shows it over itself (hmr.js)
           }
-          createApp(routes, { dev: true, config, log: (e) => server.config.logger.error(e.stack) })(req, res);
+          const css = all.filter((f) => sheets.get(f)).map((f) => [f, sheets.get(f)]);
+          if (req.url.split('?')[0] === '/_goal/style.css') {
+            let text = css.map(([rel, c]) => `/* ${rel} */\n${c.trim()}\n`).join('');
+            try {
+              const post = await postcss(root, true);
+              if (post) text = await post(text, join(root, 'style.css'), join(root, 'style.css'));
+            } catch (e) {
+              return res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' }).end(e.message);
+            }
+            return res.writeHead(200, { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'no-cache' }).end(text);
+          }
+          const styles = css.length ? `/_goal/style.css?v=${version}` : undefined;
+          createApp(routes, { dev: true, config, styles, log: (e) => server.config.logger.error(e.stack) })(req, res);
         });
     },
     handleHotUpdate({ file, server }) {
@@ -136,7 +154,7 @@ export function goal({ config = {} } = {}) {
       version++;
       server.moduleGraph.invalidateAll(); // the server code reads the new files
       tell({ type: file.endsWith('.css') ? 'css' : 'update', version });
-      if (!file.endsWith('.css') && postcssConfig(root)) tell({ type: 'css', version }); // the CSS may follow the code, as Tailwind's does
+      if (!file.endsWith('.css') && (postcssConfig(root) || goals(root, root).some((f) => sheets.get(f)))) tell({ type: 'css', version }); // the style blocks, or CSS that follows the code, as Tailwind's does
       return []; // the pages update themselves
     },
   };

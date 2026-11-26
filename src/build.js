@@ -14,6 +14,7 @@ import { join, relative, dirname, resolve, sep, posix } from 'node:path';
 import { createServer } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import * as esbuild from 'esbuild';
 import { compile } from './compiler.js';
 import { exportsOf } from './types.js';
@@ -109,8 +110,9 @@ export function check(app) {
  * Compiles an app into dist/. Throws on a compile error or a duplicate route.
  * `dev` keeps chunks readable with source maps back to the .goal files; otherwise they are minified
  * and the source stays on the server. `publicPath` is where the site is served from.
- * @returns {Promise<{ version: string, chunks: { url: string, bytes: number, gzip: number }[], loader: number, routes: string[], css: boolean }>}
- *   css: whether the stylesheets went through PostCSS
+ * @returns {Promise<{ version: string, chunks: { url: string, bytes: number, gzip: number }[], loader: number, routes: string[], css: boolean,
+ *   styles: { url: string, bytes: number, gzip: number } | null }>}
+ *   css: whether the stylesheets went through PostCSS; styles: the app's stylesheet, the files' style blocks
  */
 export async function build(app, { out = join(app, 'dist'), dev = false, publicPath = '/' } = {}) {
   const version = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -119,6 +121,7 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
   const routeFiles = [];
   const entries = new Map(); // client modules, by output name
   const renders = new Map(); // render modules, by .goal file
+  const sheets = new Map(); // the style blocks, scoped, by .goal file
   rmSync(out, { recursive: true, force: true });
   const all = files(app);
   const link = linker(app, all);
@@ -142,6 +145,7 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
       routes.push({ key, file: rel, label: `${route.method} ${route.path}` });
     }
     renders.set(resolve(app, rel), r.render);
+    if (r.css) sheets.set(rel, r.css);
     for (const c of r.clients) entries.set(`${base}.${c.name}`, { code: c.code, dir: resolve(app, dirname(rel)), name: `${posix.basename(base)}.${c.name}` });
   }
   // All browser code in one bundle with code splitting: each component is its own file, and code
@@ -178,20 +182,35 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
       chunks.push({ url: publicPath + rel, bytes: Buffer.byteLength(f.text), gzip: gzipSync(f.text).length });
     }
   }
+  // The files' style blocks, in one stylesheet for the whole app: through PostCSS when the app has a
+  // config, minified for production. Its URL names its content, so a browser caches it until it changes.
+  const css = await postcss(app, dev);
+  let styles = null;
+  if (sheets.size) {
+    const file = join(out, 'client', 'c', '_', 'style.css');
+    let text = [...sheets.keys()]
+      .sort() // the same order, and so the same URL, on any machine
+      .map((rel) => `/* ${rel} */\n${sheets.get(rel).trim()}\n`)
+      .join('');
+    if (css) text = await css(text, join(app, 'style.css'), file);
+    if (!dev) text = (await esbuild.transform(text, { loader: 'css', minify: true })).code;
+    write(file, text);
+    styles = { url: `${publicPath}c/_/style.css?v=${createHash('sha256').update(text).digest('hex').slice(0, 10)}`, bytes: Buffer.byteLength(text), gzip: gzipSync(text).length };
+  }
   write(
     join(out, 'server', '_routes.js'),
     routeFiles.map((f, i) => `import { _$routes as r${i} } from './${f}.js?v=${version}';\n`).join('') +
-      `export default [${routeFiles.map((_, i) => `...r${i}`).join(', ')}];\n`,
+      `export default [${routeFiles.map((_, i) => `...r${i}`).join(', ')}];\n` +
+      (styles ? `export const styles = ${JSON.stringify(styles.url)};\n` : ''),
   );
   // The server code is ES modules, whatever the app's package.json says.
   write(join(out, 'server', 'package.json'), '{ "type": "module" }\n');
-  const css = await postcss(app, dev);
   if (existsSync(join(app, 'public'))) {
     cpSync(join(app, 'public'), join(out, 'public'), { recursive: true });
     for (const f of css ? readdirSync(join(app, 'public'), { recursive: true }).filter((f) => f.endsWith('.css')) : [])
       writeFileSync(join(out, 'public', f), await css(readFileSync(join(app, 'public', f), 'utf8'), join(app, 'public', f), join(out, 'public', f)));
   }
-  return { version, chunks, loader: gzipSync(loaderScript()).length, routes: routes.map((r) => r.label), css: !!css };
+  return { version, chunks, loader: gzipSync(loaderScript()).length, routes: routes.map((r) => r.label), css: !!css, styles };
 }
 
 /**
@@ -211,8 +230,8 @@ export async function serve(app, { out = join(app, 'dist'), port = 3000, dev = f
       req.on('close', () => hmr.delete(res));
       return;
     }
-    const routes = (await import(`${routesFile}?v=${version()}`)).default;
-    return createApp(routes, { dev, config, log, staticDirs: [join(out, 'client'), join(out, 'public')] })(req, res);
+    const { default: routes, styles } = await import(`${routesFile}?v=${version()}`);
+    return createApp(routes, { dev, config, log, styles, staticDirs: [join(out, 'client'), join(out, 'public')] })(req, res);
   });
   return new Promise((ok) => server.listen(port, () => ok(server)));
 }
@@ -235,7 +254,7 @@ export async function dev(app, { port = 3000, log = console.log } = {}) {
       log(`built: ${r.routes.length} route(s), ${r.chunks.length} chunk(s)`);
       const type = changed.length && changed.every((f) => f.endsWith('.css')) ? 'css' : 'update';
       tell({ type, version });
-      if (type === 'update' && r.css) tell({ type: 'css', version }); // PostCSS may make new CSS from the code, as Tailwind does
+      if (type === 'update' && (r.css || r.styles)) tell({ type: 'css', version }); // the style blocks changed, or PostCSS made new CSS from the code, as Tailwind does
     } catch (e) {
       log(e.message);
       tell({ type: 'error', message: e.message });

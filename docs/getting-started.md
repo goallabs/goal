@@ -72,7 +72,8 @@ goal add <tool>     # set up Tailwind CSS, Prisma, ESLint, Vitest and more (see 
 
 ## What goes in an app
 
-- `.goal` files, anywhere in the folder: [routes](routes) and [components](components).
+- `.goal` files, anywhere in the folder: [routes](routes) and [components](components), each with
+  its own CSS in a [style block](components#styles) if it likes.
 - `.js` and `.json` files for server code the `.goal` files import.
 - A `public/` folder for CSS, images and fonts, served as they are. With a `postcss.config.js`, the
   stylesheets go through PostCSS first (see [Tools](tools)).

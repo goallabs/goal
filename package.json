@@ -61,6 +61,8 @@
     ".": "./src/server.js",
     "./compiler": "./src/compiler.js",
     "./rt": "./src/rt.js",
+    "./render": "./src/render.js",
+    "./call": "./src/call.js",
     "./loader": "./src/loader.js",
     "./build": "./src/build.js",
     "./keyed": "./src/keyed.js",

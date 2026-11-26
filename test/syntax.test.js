@@ -87,3 +87,25 @@ describe('positions', () => {
     expect(d.map(out.indexOf('</p>'))).toBe(src.indexOf('</p>'));
   });
 });
+
+describe('style blocks', () => {
+  it('are taken out of the code as text, with where their CSS starts', () => {
+    const src = "import x from './x.js';\nstyle {\n  .a { content: \"}\"; }\n  /* } */\n  b { c: 'd\\'}' }\n}\nroute GET / { return <p>hi</p>; }\n";
+    const d = desugar(src, 'a.goal');
+    expect(d.style.css).toBe("\n  .a { content: \"}\"; }\n  /* } */\n  b { c: 'd\\'}' }\n");
+    expect(src.slice(d.style.at, d.style.at + 4)).toBe('\n  .');
+    expect(d.code).toBe("import x from './x.js';\n\nasync function _$r0(request, _$x) { return <p>hi</p>; }\n");
+    expect(d.routes.map((r) => r.path)).toEqual(['/']);
+    expect(desugar('export const a = 1;', 'a.goal').style).toBe(null);
+  });
+
+  it('leave JavaScript that names style alone', () => {
+    expect(code('const style = { a: 1 };\nstyle.a = 2;\nfunction f() { style; }')).toBe('const style = { a: 1 };\nstyle.a = 2;\nfunction f() { style; }');
+  });
+
+  it('are one per file, and end', () => {
+    expect(error('style { a {} }\nstyle { b {} }')).toBe('a.goal:2:1: a file has one style block: put all of its CSS in it');
+    expect(error('style {\n  a { b: c;\n')).toBe('a.goal:1:7: this style block has no closing }');
+    expect(error('style { a { b: c } /* } ')).toBe('a.goal:1:7: this style block has no closing }');
+  });
+});
