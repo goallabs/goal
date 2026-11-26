@@ -4,6 +4,11 @@
     "description": "A route: runs on the server, once per request",
     "body": ["route ${1|GET,POST,PUT,PATCH,DELETE|} /${2:path} {", "\treturn $0;", "}"]
   },
+  "Group": {
+    "prefix": "group",
+    "description": "A group: routes under one path, with a before block that runs first (api: for other programs)",
+    "body": ["group /${1:path} {", "\tbefore {", "\t\t$2", "\t}", "", "\troute ${3|GET,POST,PUT,PATCH,DELETE|} /${4} {", "\t\treturn $0;", "\t}", "}"]
+  },
   "Component": {
     "prefix": "component",
     "description": "A component: var is state, let/const are computed",

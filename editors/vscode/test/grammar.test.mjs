@@ -132,12 +132,17 @@ route GET /users/{id: number}/posts/{slug:string} {
   return <main>{id}</main>;
 }`;
 
-test('#strict, on the first line only', { skip }, async () => {
+test('#strict, before anything else in the file', { skip }, async () => {
   const lines = await tokenize(STRICT);
   assert.equal(lines[0][0].text, '#strict');
   assert.equal(inner(lines[0][0].scopes), 'keyword.control.directive.strict.goal');
-  const later = await tokenize('const a = 1;\n#strict');
-  assert.ok(!later[1].some((t) => t.scopes.some((s) => s.endsWith('strict.goal'))));
+  // after blank lines and indentation, as syntax.js allows
+  const blank = await tokenize('\n\n  #strict\ntype A = number;');
+  assert.equal(inner(blank[2].find((t) => t.text === '#strict').scopes), 'keyword.control.directive.strict.goal');
+  assert.equal(inner(scopesOf(blank, 'A', 3)), 'entity.name.type.alias.tsx');
+  // not after code, where it isn't goal's
+  for (const text of ['const a = 1;\n#strict', '\nimport x from "./x.js";\n#strict'])
+    assert.ok(!(await tokenize(text)).flat().some((t) => t.scopes.some((s) => s.endsWith('strict.goal'))), text);
 });
 
 test('types in a #strict file: declarations and annotations', { skip }, async () => {
@@ -174,6 +179,44 @@ test('route parameters with a type: string or number', { skip }, async () => {
   assert.equal(inner(scopesOf(lines, 'return', 16)), 'keyword.control.flow.tsx');
   const bad = await tokenize('route GET /x/{n: Note}/{m:numbers} {\n}');
   for (const name of ['Note', 'numbers']) assert.equal(inner(scopesOf(bad, name)), 'invalid.illegal.route-parameter-type.goal');
+});
+
+test('group: keyword, path with {params}, api, a before block, and routes inside', { skip }, async () => {
+  const lines = await tokenize(
+    'group /api/{org: number} api {\n  before {\n    if (!ok) return json({ error: 1 }, 401);\n  }\n  group /admin {\n    route GET /users/{id} { return <p>{org}</p>; }\n  }\n}\nexport function A() { return <p />; }',
+  );
+  assert.equal(inner(scopesOf(lines, 'group')), 'storage.type.group.goal');
+  assert.equal(inner(scopesOf(lines, 'api')), 'string.unquoted.route-path.goal');
+  assert.equal(inner(scopesOf(lines, 'org')), 'variable.parameter.route.goal');
+  assert.equal(inner(scopesOf(lines, 'number')), 'support.type.primitive.goal');
+  assert.equal(inner(lines[0].filter((t) => t.text === 'api')[1].scopes), 'storage.modifier.api.goal');
+  assert.equal(inner(scopesOf(lines, 'before', 1)), 'storage.type.before.goal');
+  assert.equal(inner(scopesOf(lines, 'return', 2)), 'keyword.control.flow.tsx');
+  assert.equal(inner(scopesOf(lines, 'group', 4)), 'storage.type.group.goal');
+  assert.equal(inner(scopesOf(lines, 'admin', 4)), 'string.unquoted.route-path.goal');
+  assert.equal(inner(scopesOf(lines, 'route', 5)), 'storage.type.route.goal');
+  assert.equal(inner(scopesOf(lines, 'id', 5)), 'variable.parameter.route.goal');
+  assert.equal(inner(scopesOf(lines, 'p', 5)), 'entity.name.tag.tsx');
+  assert.equal(inner(scopesOf(lines, 'function', 8)), 'storage.type.function.tsx');
+  // not a name: group and before as ordinary variables stay JavaScript
+  const plain = await tokenize('const group = before / 2;\ngroup / 2;\nbefore(x);');
+  for (const t of plain.flat()) assert.ok(!t.scopes.some((s) => s.endsWith('group.goal') || s.endsWith('before.goal')), JSON.stringify(t));
+});
+
+test("a route's input types, in parentheses after its path", { skip }, async () => {
+  const lines = await tokenize('#strict\nroute POST /notes (json: (A | B)[], query: { page?: number }, form: { t: string }) {\n  return json(request.json, 201);\n}\nroute GET / {\n}');
+  const scope = (text, n = 0) => inner(lines[1].filter((t) => t.text.trim() === text)[n].scopes);
+  for (const k of ['json', 'query', 'form']) assert.equal(scope(k), 'variable.parameter.route-input.goal');
+  assert.equal(scope('A'), 'entity.name.type.tsx');
+  assert.equal(scope('page'), 'variable.object.property.tsx');
+  assert.equal(scope('number'), 'support.type.primitive.tsx');
+  assert.equal(scope('string'), 'support.type.primitive.tsx');
+  assert.equal(scope('(', 0), 'punctuation.definition.parameters.begin.goal');
+  assert.equal(lines[1].filter((t) => t.text === ')').map((t) => inner(t.scopes)).at(-1), 'punctuation.definition.parameters.end.goal');
+  assert.equal(inner(scopesOf(lines, 'return', 2)), 'keyword.control.flow.tsx');
+  assert.equal(inner(scopesOf(lines, 'json', 2)), 'entity.name.function.tsx');
+  assert.equal(inner(scopesOf(lines, 'route', 4)), 'storage.type.route.goal');
+  for (const t of lines.flat()) assert.ok(!t.scopes.some((s) => s.startsWith('invalid')), JSON.stringify(t));
 });
 
 test('the example apps tokenize with nothing invalid, and close every block', { skip }, async () => {

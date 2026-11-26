@@ -1,9 +1,9 @@
 {
   "name": "goal-vscode",
   "displayName": "goal.js",
-  "description": "goal.js (.goal) in VS Code: highlighting for routes, server functions, {if} in markup and #strict types, and the compiler's errors as you type.",
+  "description": "goal.js (.goal) in VS Code: highlighting for routes, server functions, {if} in markup, style blocks and #strict types, CSS completions in style blocks, the compiler's errors as you type, and ESLint and Tailwind CSS in .goal files.",
   "icon": "icons/goal-128.png",
-  "version": "0.5.0",
+  "version": "0.8.8",
   "publisher": "goaljs",
   "license": "MIT",
   "homepage": "https://goallabs.github.io/goal/",
@@ -86,11 +86,31 @@
         "language": "goal",
         "path": "./snippets/goal.code-snippets"
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "goal.lintWithESLint",
+        "title": "Lint .goal Files with ESLint",
+        "category": "goal.js"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "goal.lintWithESLint",
+          "when": "workspaceFolderCount > 0"
+        }
+      ]
+    },
+    "configurationDefaults": {
+      "tailwindCSS.includeLanguages": {
+        "goal": "javascriptreact"
+      }
+    }
   },
   "scripts": {
     "bundle": "node scripts/bundle.mjs",
-    "vscode:prepublish": "node scripts/bundle.mjs --ref HEAD",
+    "vscode:prepublish": "node scripts/bundle.mjs --ref release",
     "test": "node scripts/bundle.mjs && node --test test/*.test.mjs",
     "test:vscode": "node scripts/bundle.mjs && node test/vscode/run.mjs",
     "package": "vsce package --out goal.vsix"
@@ -98,6 +118,7 @@
   "devDependencies": {
     "@vscode/vsce": "^3.6.0",
     "esbuild": "^0.28.2",
+    "eslint": "10.15.0",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2"
   }

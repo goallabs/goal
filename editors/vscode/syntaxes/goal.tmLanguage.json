@@ -18,6 +18,12 @@
           "include": "#route"
         },
         {
+          "include": "#group"
+        },
+        {
+          "include": "#before"
+        },
+        {
           "include": "#server-function"
         },
         {
@@ -62,18 +68,38 @@
       ]
     },
     "strict": {
-      "comment": "#strict on the first line: the file's types are checked",
-      "match": "\\A\\s*(#strict)(?=[ \\t]*$)",
-      "captures": {
-        "1": {
-          "name": "keyword.control.directive.strict.goal"
+      "comment": "#strict before anything else in the file, after blank lines at most: the file's types are checked",
+      "patterns": [
+        {
+          "match": "\\A\\s*(#strict)(?=[ \\t]*$)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.directive.strict.goal"
+            }
+          }
+        },
+        {
+          "comment": "the file starts with blank lines: #strict may come on the first line that isn't",
+          "begin": "\\A(?=\\s*$)",
+          "end": "(?=\\S)",
+          "applyEndPatternLast": true,
+          "patterns": [
+            {
+              "match": "^\\s*(#strict)(?=[ \\t]*$)",
+              "captures": {
+                "1": {
+                  "name": "keyword.control.directive.strict.goal"
+                }
+              }
+            }
+          ]
         }
-      }
+      ]
     },
     "route": {
-      "comment": "route GET /users/{id} {  or, in a #strict file, /users/{id: number}; the body that follows is an ordinary block",
-      "match": "^\\s*(route)\\s+([A-Z]+)\\s+(/(?:\\{[^}\\n]*\\}|[^\\s{])*)(?=\\s*\\{)",
-      "captures": {
+      "comment": "route GET /users/{id} {  or, in a #strict file, /users/{id: number} and the input's types: route POST /notes (json: Note) {; the body that follows is an ordinary block",
+      "begin": "^\\s*(route)\\s+([A-Z]+)\\s+(/(?:\\{[^}\\n]*\\}|[^\\s{(])*)(?=\\s*[{(])",
+      "beginCaptures": {
         "1": {
           "name": "storage.type.route.goal"
         },
@@ -90,42 +116,120 @@
           ]
         },
         "3": {
+          "patterns": [
+            {
+              "include": "#route-path"
+            }
+          ],
+          "name": "string.unquoted.route-path.goal"
+        }
+      },
+      "end": "(?<=\\))|(?=\\s*\\{)",
+      "patterns": [
+        {
+          "include": "#route-input"
+        }
+      ]
+    },
+    "route-input": {
+      "comment": "(json: NewNote, query: { page?: number }, form: { title: string }): the types of a route's input",
+      "begin": "\\s*(\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.parameters.begin.goal"
+        }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.parameters.end.goal"
+        }
+      },
+      "name": "meta.route.input.goal",
+      "patterns": [
+        {
+          "match": "(?<![\\w$])(json|query|form)\\s*(:)",
+          "captures": {
+            "1": {
+              "name": "variable.parameter.route-input.goal"
+            },
+            "2": {
+              "name": "keyword.operator.type.annotation.goal"
+            }
+          }
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.parameter.goal"
+        },
+        {
+          "include": "source.tsx#type"
+        }
+      ]
+    },
+    "route-path": {
+      "patterns": [
+        {
+          "match": "(\\{)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(?:(:)\\s*([^}\\s]*)\\s*)?(\\})",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.parameter.begin.goal"
+            },
+            "2": {
+              "name": "variable.parameter.route.goal"
+            },
+            "3": {
+              "name": "keyword.operator.type.annotation.goal"
+            },
+            "4": {
+              "patterns": [
+                {
+                  "match": "(?<![\\w$])(?:string|number)(?![\\w$])",
+                  "name": "support.type.primitive.goal"
+                },
+                {
+                  "match": "[^}\\s]+",
+                  "name": "invalid.illegal.route-parameter-type.goal"
+                }
+              ]
+            },
+            "5": {
+              "name": "punctuation.definition.parameter.end.goal"
+            }
+          }
+        },
+        {
+          "match": "/",
+          "name": "punctuation.separator.path.goal"
+        }
+      ]
+    },
+    "group": {
+      "comment": "group /api api {  routes under one path; api: they answer other programs. The body that follows is an ordinary block",
+      "match": "^\\s*(group)\\s+(/(?:\\{[^}\\n]*\\}|[^\\s{(])*)(?:\\s+(api))?(?=\\s*\\{)",
+      "captures": {
+        "1": {
+          "name": "storage.type.group.goal"
+        },
+        "2": {
           "name": "string.unquoted.route-path.goal",
           "patterns": [
             {
-              "match": "(\\{)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(?:(:)\\s*([^}\\s]*)\\s*)?(\\})",
-              "captures": {
-                "1": {
-                  "name": "punctuation.definition.parameter.begin.goal"
-                },
-                "2": {
-                  "name": "variable.parameter.route.goal"
-                },
-                "3": {
-                  "name": "keyword.operator.type.annotation.goal"
-                },
-                "4": {
-                  "patterns": [
-                    {
-                      "match": "(?<![\\w$])(?:string|number)(?![\\w$])",
-                      "name": "support.type.primitive.goal"
-                    },
-                    {
-                      "match": "[^}\\s]+",
-                      "name": "invalid.illegal.route-parameter-type.goal"
-                    }
-                  ]
-                },
-                "5": {
-                  "name": "punctuation.definition.parameter.end.goal"
-                }
-              }
-            },
-            {
-              "match": "/",
-              "name": "punctuation.separator.path.goal"
+              "include": "#route-path"
             }
           ]
+        },
+        "3": {
+          "name": "storage.modifier.api.goal"
+        }
+      }
+    },
+    "before": {
+      "comment": "before { ... } in a group: runs before each of its routes",
+      "match": "^\\s*(before)(?=\\s*\\{)",
+      "captures": {
+        "1": {
+          "name": "storage.type.before.goal"
         }
       }
     },
