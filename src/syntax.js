@@ -1,6 +1,7 @@
 // The .goal syntax on top of JavaScript and JSX:
 //
 //   route GET /users/{id} { ... }                       a route, at the top level of a file
+//   group /api api { before { ... } route ... }         routes under one path, with a before block
 //   {if (a) <p>A</p> else if (b) <p>B</p> else <p>C</p>}  if/else as a value, inside markup
 //   server function addNote(text) { ... }              runs on the server, called from the browser
 //   #strict, then name: Type and type Note = { ... }    types, in a file that starts with #strict
@@ -53,9 +54,11 @@ export function errorAt(source, file, pos, message) {
 }
 
 const Base = Parser.extend(jsx());
+const TOP = { path: '/', params: [], types: {}, api: false, before: [] }; // what a route outside any group joins
 
 /**
- * @returns {{ code: string, routes: { method: string, path: string, params: string[], types: object, name: string }[],
+ * @returns {{ code: string, routes: { method: string, path: string, params: string[], types: object, name: string, api?: true, before?: string[] }[],
+ *   befores: { name: string, params: string[] }[],
  *   serverFns: { name: string, exported: boolean }[], map: (pos: number) => number, strict: boolean,
  *   style: { css: string, at: number } | null,
  *   types: { decls: Map<string, { type: object, exported: boolean, at: number }>, at: Map<number, object> } }}
@@ -64,6 +67,7 @@ const Base = Parser.extend(jsx());
 export function desugar(source, file) {
   const edits = [];
   const routes = [];
+  const befores = []; // groups' before blocks
   const serverFns = [];
   const types = { decls: new Map(), at: new Map() };
   let style = null; // the style block: its CSS, and where that starts in the source
@@ -214,30 +218,43 @@ export function desugar(source, file) {
       }
       if (topLevel && this.type === tt.name && this.value === 'route' && /^route[ \t]+[A-Z]/.test(this.input.slice(this.start)))
         return this.goalRoute();
+      if (topLevel && this.type === tt.name && this.value === 'group' && /^group[ \t]+\//.test(this.input.slice(this.start))) return this.goalGroup();
       if (topLevel && this.type === tt.name && this.value === 'style' && /^style[ \t]*\{/.test(this.input.slice(this.start))) return this.goalStyle();
       return super.parseStatement(context, topLevel, exports);
     }
 
-    goalRoute() {
+    goalRoute(group = TOP) {
       const start = this.start;
       const m = /^route[ \t]+(\S+)[ \t]+((?:\{[^}\n]*\}|[^\s{])+)[ \t]+\{/.exec(this.input.slice(start));
       if (!m) fail(start, 'write a route as: route GET /path { ... }');
       const [head, method, path] = m;
       if (!METHODS.includes(method)) fail(start, `unknown method ${method}; use ${METHODS.join(', ')}`);
+      const p = this.goalPath(start, path, group);
+      const name = `_$r${routes.length}`;
+      routes.push({ method, ...p, name, ...(group.api ? { api: true } : {}), ...(group.before.length ? { before: group.before } : {}) });
+      return this.goalHandler(start, head.length, name, 'GoalRoute');
+    }
+
+    // A route's or group's path, joined to its group's: the full path, its parameters and their types
+    goalPath(start, path, group) {
       const segs = path === '/' ? [] : path.slice(1).split('/');
       if (path[0] !== '/' || !segs.every((s) => SEGMENT.test(s)))
         fail(start, `write the path with plain words and {name} parameters, like /users/{id} (not ${path})`);
-      const params = segs.filter((s) => s[0] === '{').map((s) => s.slice(1, -1).split(':')[0].trim());
       const typed = segs.filter((s) => s.includes(':'));
       if (typed.length) this.typed(start);
-      const types = Object.fromEntries(typed.map((s) => s.slice(1, -1).split(':').map((x) => x.trim())));
+      const params = [...group.params, ...segs.filter((s) => s[0] === '{').map((s) => s.slice(1, -1).split(':')[0].trim())];
       for (const [i, p] of params.entries()) {
         if (params.indexOf(p) !== i) fail(start, `the path names {${p}} twice`);
         if (p === 'request') fail(start, 'name the path parameter something other than {request}');
       }
-      const name = `_$r${routes.length}`;
-      routes.push({ method, path: path.replace(/\{([A-Za-z0-9_]+)[^}]*\}/g, '{$1}'), params, types, name });
-      const brace = start + head.length - 1;
+      const own = path === '/' ? '' : path.replace(/\{([A-Za-z0-9_]+)[^}]*\}/g, '{$1}');
+      const full = group.path === '/' ? own || '/' : group.path + own;
+      return { path: full, params, types: { ...group.types, ...Object.fromEntries(typed.map((s) => s.slice(1, -1).split(':').map((x) => x.trim()))) } };
+    }
+
+    // The body of a route or a group's before block: a function that runs on the server per request
+    goalHandler(start, length, name, type) {
+      const brace = start + length - 1;
       edits.push({ at: start, del: brace - start, ins: `async function ${name}(request, _$x) ` });
       const node = this.startNode();
       this.pos = brace;
@@ -245,7 +262,37 @@ export function desugar(source, file) {
       this.enterScope(2 | 4); // an async function's scope (acorn's SCOPE_FUNCTION | SCOPE_ASYNC)
       node.body = this.parseBlock(false);
       this.exitScope();
-      return this.finishNode(node, 'GoalRoute');
+      return this.finishNode(node, type);
+    }
+
+    // group /path api { before { ... } route ... group ... }: routes under one path, which share a
+    // before block (run first, outer groups' first) and, with api, take requests from other programs
+    goalGroup(outer = TOP) {
+      const start = this.start;
+      const m = /^group[ \t]+((?:\{[^}\n]*\}|[^\s{])+)(?:[ \t]+(api))?[ \t]*\{/.exec(this.input.slice(start));
+      if (!m) fail(start, 'write a group as: group /path { routes }, or group /path api { routes }');
+      const group = { ...this.goalPath(start, m[1], outer), api: outer.api || !!m[2], before: outer.before };
+      edits.push({ at: start, del: m[0].length, ins: '' });
+      const node = this.startNode();
+      this.pos = start + m[0].length;
+      this.next();
+      let before = false;
+      while (this.type !== tt.braceR) {
+        const at = this.input.slice(this.start);
+        if (this.type === tt.name && /^before[ \t]*\{/.test(at)) {
+          if (before) fail(this.start, 'a group has one before block');
+          before = true;
+          const name = `_$b${befores.length}`;
+          befores.push({ name, params: group.params });
+          group.before = [...group.before, name];
+          this.goalHandler(this.start, /^before[ \t]*\{/.exec(at)[0].length, name, 'GoalBefore');
+        } else if (this.type === tt.name && this.value === 'route') this.goalRoute(group);
+        else if (this.type === tt.name && this.value === 'group') this.goalGroup(group);
+        else fail(this.start, this.type === tt.eof ? 'this group has no closing }' : 'a group holds routes, groups and a before { } block');
+      }
+      edits.push({ at: this.start, del: 1, ins: '' });
+      this.next();
+      return this.finishNode(node, 'GoalGroup');
     }
 
     // style { CSS }: not JavaScript, so it's read as text up to its closing brace, and taken out
@@ -322,5 +369,5 @@ export function desugar(source, file) {
     }
     return pos - shift;
   };
-  return { code, routes, serverFns, map, strict, types, style };
+  return { code, routes, befores, serverFns, map, strict, types, style };
 }

@@ -120,8 +120,9 @@ export function compile(source, opts = {}) {
   }
   o.own = new Set(d.serverFns.map((f) => f.name));
 
-  const server = transform(ast, 'server', o, d.routes);
-  const client = transform(ast, 'client', o, d.routes);
+  const handlers = [...d.routes, ...d.befores]; // server-only functions, run per request
+  const server = transform(ast, 'server', o, handlers);
+  const client = transform(ast, 'client', o, handlers);
   const clients = [];
   const keys = new Map(); // the props each component's browser code reads: the page gets those
   for (const c of client.components.filter((c) => c.interactive)) {
@@ -142,7 +143,7 @@ export function compile(source, opts = {}) {
           t.variableDeclarator(
             t.identifier('_$routes'),
             t.arrayExpression([
-              ...d.routes.map((r) => routeEntry(r.method, r.path, t.identifier(r.name), r.types)),
+              ...d.routes.map((r) => routeEntry(r.method, r.path, t.identifier(r.name), r)),
               ...endpoints.map((f) =>
                 routeEntry(
                   'POST',
@@ -160,7 +161,7 @@ export function compile(source, opts = {}) {
     );
   return {
     server: emit(body.node),
-    render: renderModule(ast, o, d.routes, keys),
+    render: renderModule(ast, o, handlers, keys),
     clients,
     components: server.components.map(({ name, interactive, events }) => ({ name, interactive, events })),
     routes: d.routes.map(({ method, path }) => ({ method, path })),
@@ -169,12 +170,14 @@ export function compile(source, opts = {}) {
   };
 }
 
-const routeEntry = (method, path, handler, types = {}) =>
+const routeEntry = (method, path, handler, { types = {}, api, before } = {}) =>
   t.objectExpression([
     t.objectProperty(t.identifier('method'), t.stringLiteral(method)),
     t.objectProperty(t.identifier('path'), t.stringLiteral(path)),
     t.objectProperty(t.identifier('handler'), handler),
     ...(Object.keys(types).length ? [t.objectProperty(t.identifier('types'), t.valueToNode(types))] : []), // typed path parameters
+    ...(api ? [t.objectProperty(t.identifier('api'), t.booleanLiteral(true))] : []), // in a group /path api
+    ...(before ? [t.objectProperty(t.identifier('before'), t.arrayExpression(before.map((b) => t.identifier(b))))] : []), // its groups' before blocks
   ]);
 
 // ---------------------------------------------------------------------------------------------

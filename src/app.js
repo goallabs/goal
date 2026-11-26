@@ -7,6 +7,8 @@
 //   - a request that changes something (POST, PUT, PATCH, DELETE) must come from this site:
 //     a cross-site Origin or Sec-Fetch-Site is refused, and without `Sec-Fetch-Site: same-origin`
 //     it needs the CSRF token, which forms get automatically (`csrf: false` to turn it off);
+//   - except in a `group /path api`, whose routes neither read nor set cookies, so there's nothing
+//     for another site to misuse; other sites read their answers only when `cors` allows;
 //   - bodies are limited (`bodyLimit`, 1 MB), redirects stay on this site unless asked,
 //     cookies are HttpOnly, Secure and SameSite=Lax, and errors show no details outside `goal dev`.
 
@@ -33,6 +35,7 @@ const TYPES = {
   '.woff2': 'font/woff2',
 };
 const HTML = 'text/html; charset=utf-8';
+const JSON_TYPE = 'application/json; charset=utf-8';
 const SAFE = new Set(['GET', 'HEAD']);
 const OVERRIDES = new Set(['PUT', 'PATCH', 'DELETE']);
 const REPLY = Symbol('reply');
@@ -89,7 +92,7 @@ export function redirect(url, { external = false, status = 303 } = {}) {
   return { [REPLY]: true, status, headers: { location: url } };
 }
 
-export const json = (value, status = 200, headers) => ({ [REPLY]: true, status, type: 'application/json; charset=utf-8', body: JSON.stringify(value), headers });
+export const json = (value, status = 200, headers) => ({ [REPLY]: true, status, type: JSON_TYPE, body: JSON.stringify(value), headers });
 
 /** Any answer: markup as a page, text, or bytes, with a status and headers of its own. */
 export function reply(body, { status = 200, type, headers } = {}) {
@@ -192,16 +195,25 @@ function param(r, name, seg, params) {
   return true;
 }
 
+/** The route for a method and path, or the methods the path takes; api says whether it's an api route (or path). */
 function match(routes, method, segs) {
   const allow = new Set();
+  let api = false;
   for (const r of routes) {
     if (r.segs.length !== segs.length) continue;
     const params = {};
     if (!r.segs.every((s, i) => (s[0] === '{' ? param(r, s.slice(1, -1), segs[i], params) : s === segs[i]))) continue;
-    if (r.method === method) return { route: r, params };
+    if (r.method === method) return { route: r, params, api: !!r.api };
     allow.add(r.method);
+    api ||= !!r.api;
   }
-  return allow.size ? { allow: [...allow] } : null;
+  return allow.size ? { allow: [...allow], api } : null;
+}
+
+/** The Access-Control-Allow-Origin for a request's Origin: goal.config.js's cors is '*' or a list of origins. */
+function allowed(cors, origin) {
+  if (cors === '*') return '*';
+  return origin && [cors].flat().includes(origin) ? origin : null;
 }
 
 /** The state a page kept for each component, in order, sent with a live update; anything else counts as none. */
@@ -217,7 +229,7 @@ function keptState(header) {
 /**
  * A request handler for node:http.
  * @param {{ method: string, path: string, handler: Function }[]} routes
- * @param {{ dev?: boolean, staticDirs?: string[], config?: { csp?: string | false, csrf?: boolean, bodyLimit?: number, onError?: (e: Error, request?: object) => void }, log?: (e: Error) => void, styles?: string }} [opts]
+ * @param {{ dev?: boolean, staticDirs?: string[], config?: { csp?: string | false, csrf?: boolean, bodyLimit?: number, cors?: string | string[], onError?: (e: Error, request?: object) => void }, log?: (e: Error) => void, styles?: string }} [opts]
  *   config.onError: called with each error a route or server function throws, and the request;
  *   styles: the URL of the app's stylesheet (the style blocks), which each page links
  */
@@ -230,15 +242,15 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
     const cookies = parseCookies(req.headers.cookie);
     const setCookies = [];
     let token = cookies.goal_csrf;
-    if (!/^[\w-]{43}$/.test(token ?? '')) {
-      token = randomBytes(32).toString('base64url');
-      setCookies.push(serializeCookie('goal_csrf', token));
-    }
+    const fresh = !/^[\w-]{43}$/.test(token ?? '');
+    if (fresh) token = randomBytes(32).toString('base64url');
+    let api = false; // a route in a group /path api: no cookies, no CSRF check, errors as JSON
     const send = (status, type, body, extra, open) => {
-      res.writeHead(status, { ...headers, ...(type ? { 'content-type': type } : {}), ...(setCookies.length ? { 'set-cookie': setCookies } : {}), ...extra });
+      const set = fresh && !api ? [serializeCookie('goal_csrf', token), ...setCookies] : setCookies;
+      res.writeHead(status, { ...headers, ...(type ? { 'content-type': type } : {}), ...(set.length ? { 'set-cookie': set } : {}), ...extra });
       if (!open) res.end(req.method === 'HEAD' ? undefined : body);
     };
-    const fail = (status, title) => send(status, HTML, errorPage(title));
+    const fail = (status, title) => (api ? send(status, JSON_TYPE, JSON.stringify({ error: title })) : send(status, HTML, errorPage(title)));
     // request.signal is aborted when the client goes away, so a stream or a slow call can stop
     const gone = new AbortController();
     res.on('close', () => gone.abort());
@@ -277,52 +289,70 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
         if (f) return send(200, TYPES[extname(f)] ?? 'application/octet-stream', readFileSync(f));
       }
 
-      let method = req.method === 'HEAD' ? 'GET' : req.method;
-      let form = {};
-      const files = {};
-      let body;
-      if (!SAFE.has(req.method)) {
-        const raw = await readBody(req, limit);
-        const type = (req.headers['content-type'] ?? '').split(';')[0].trim();
-        if (raw.length) {
-          if (type === 'application/x-www-form-urlencoded') form = Object.fromEntries(new URLSearchParams(raw.toString()));
-          else if (type === 'multipart/form-data') {
-            // A form with files: its fields go in form, and each file input's files in files, by name.
-            // A file input left empty arrives as an empty field.
-            let data;
-            try {
-              data = await new Response(raw, { headers: { 'content-type': req.headers['content-type'] } }).formData();
-            } catch {
-              return fail(400, 'Bad request');
-            }
-            for (const [name, v] of data) {
-              if (typeof v === 'string') form[name] = v;
-              else (files[name] ??= []).push({ name: v.name, type: v.type, size: v.size, data: Buffer.from(await v.arrayBuffer()) });
-            }
-          } else if (type === 'application/json') {
-            try {
-              body = JSON.parse(raw);
-            } catch {
-              return fail(400, 'Bad request');
-            }
-          } else return fail(415, 'Unsupported media type');
-        }
-        if (config.csrf !== false && !sameSite(req, cookies.goal_csrf, form._csrf ?? req.headers['x-csrf-token'])) return fail(403, 'Forbidden');
-        const override = String(form._method ?? '').toUpperCase();
-        if (method === 'POST' && OVERRIDES.has(override)) method = override;
-        delete form._csrf;
-        delete form._method;
-      }
-
       let segs;
       try {
         segs = url.pathname === '/' ? [] : url.pathname.replace(/\/$/, '').slice(1).split('/').map(decodeURIComponent);
       } catch {
         return fail(400, 'Bad request');
       }
-      const m = match(sorted, method, segs);
+      let method = req.method === 'HEAD' ? 'GET' : req.method;
+      let m = match(sorted, method, segs);
+      if (m?.api) {
+        api = true;
+        // Other sites may read the answers only when goal.config.js's cors lets them (no cookies are read, so none can be stolen)
+        const origin = allowed(config.cors, req.headers.origin);
+        if (origin) headers['access-control-allow-origin'] = origin;
+        if (config.cors && config.cors !== '*') headers.vary = 'Origin';
+        if (req.method === 'OPTIONS') {
+          const asked = req.headers['access-control-request-headers'];
+          return send(204, null, null, {
+            allow: [...m.allow, 'OPTIONS'].join(', '),
+            ...(origin && { 'access-control-allow-methods': m.allow.join(', '), 'access-control-max-age': '600' }),
+            ...(origin && /^[\w-]+(\s*,\s*[\w-]+)*$/.test(asked ?? '') && { 'access-control-allow-headers': asked }),
+          });
+        }
+      }
+      let form = {};
+      const files = {};
+      let data;
+      let raw;
+      if (!SAFE.has(req.method)) {
+        raw = await readBody(req, limit);
+        const type = (req.headers['content-type'] ?? '').split(';')[0].trim();
+        if (raw.length) {
+          if (type === 'application/x-www-form-urlencoded') form = Object.fromEntries(new URLSearchParams(raw.toString()));
+          else if (type === 'multipart/form-data') {
+            // A form with files: its fields go in form, and each file input's files in files, by name.
+            // A file input left empty arrives as an empty field.
+            let parts;
+            try {
+              parts = await new Response(raw, { headers: { 'content-type': req.headers['content-type'] } }).formData();
+            } catch {
+              return fail(400, 'Bad request');
+            }
+            for (const [name, v] of parts) {
+              if (typeof v === 'string') form[name] = v;
+              else (files[name] ??= []).push({ name: v.name, type: v.type, size: v.size, data: Buffer.from(await v.arrayBuffer()) });
+            }
+          } else if (type === 'application/json') {
+            try {
+              data = JSON.parse(raw);
+            } catch {
+              return fail(400, 'Bad request');
+            }
+          } else if (!api) return fail(415, 'Unsupported media type'); // an api route reads any body from request.body
+        }
+        if (!api) {
+          if (config.csrf !== false && !sameSite(req, cookies.goal_csrf, form._csrf ?? req.headers['x-csrf-token'])) return fail(403, 'Forbidden');
+          const override = String(form._method ?? '').toUpperCase();
+          if (method === 'POST' && OVERRIDES.has(override)) m = match(sorted, (method = override), segs);
+          delete form._csrf;
+          delete form._method;
+        }
+      }
+
       if (!m) return fail(404, 'Not found');
-      if (m.allow) return send(405, HTML, errorPage('Method not allowed'), { allow: m.allow.join(', ') });
+      if (m.allow) return send(405, ...(api ? [JSON_TYPE, JSON.stringify({ error: 'Method not allowed' })] : [HTML, errorPage('Method not allowed')]), { allow: m.allow.join(', ') });
 
       const ctx = _$ctx(token);
       if (dev && req.headers['x-goal-hmr']) {
@@ -334,9 +364,16 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
           return j < 0 ? null : kept.splice(0, j + 1).pop().s;
         };
       }
-      request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, files, json: body, signal: gone.signal };
-      const cookie = (name, value, opts) => setCookies.push(serializeCookie(name, value, opts));
-      let out = await m.route.handler(request, { ctx, redirect, json, notFound, cookie, reply, stream, events });
+      request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies: api ? {} : cookies, form, files, json: data, body: raw, signal: gone.signal };
+      const cookie = (name, value, opts) => {
+        if (api) throw new Error('an api route answers without cookies: send a token in a header, like Authorization, instead');
+        setCookies.push(serializeCookie(name, value, opts));
+      };
+      const x = { ctx, redirect, json, notFound: api ? () => json({ error: 'Not found' }, 404) : notFound, cookie, reply, stream, events };
+      // The groups' before blocks run first, outer first: one that returns something answers instead
+      let out;
+      for (const b of m.route.before ?? []) if ((out = await b(request, x)) !== undefined) break;
+      if (out === undefined) out = await m.route.handler(request, x);
       let status = 200;
       let extra;
       if (out?.[REPLY] && out.page) ({ status, headers: extra, page: out } = out); // reply(markup, { status, headers })

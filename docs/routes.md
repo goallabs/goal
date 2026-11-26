@@ -78,6 +78,61 @@ sent.
 Markup that starts with `<html>` is the whole document: put `<title>` and
 `<link rel="stylesheet" href="/style.css" />` in its `<head>`. Other markup goes in a plain document.
 
+## Groups
+
+A group puts routes under one path. Its `before` block runs before each of them, and one that
+returns something answers the request in the route's place:
+
+```jsx
+group /admin {
+  before {
+    const user = await session(request.cookies.sid);
+    if (!user?.admin) return redirect('/login');
+    request.user = user;
+  }
+
+  route GET / { return <main><Dashboard user={request.user} /></main>; }
+  route GET /users/{id} { return <main><User id={id} /></main>; }
+}
+```
+
+These answer `/admin` and `/admin/users/{id}`. Groups can hold groups: the outer `before` runs first,
+and a path parameter of a group's path is a constant in every block inside it. A group has at most
+one `before`.
+
+## API routes
+
+A group written `group /path api` answers other programs: a mobile app, another server, a webhook,
+or a page on another site. Its routes, and those of the groups inside it, work differently:
+
+- **No CSRF check.** Cookies are neither read nor set (`request.cookies` is empty and `cookie()`
+  throws), so a request from another site carries nothing it could misuse. Check a token from a
+  header, such as `Authorization`, in `before`.
+- **Any body.** JSON still arrives in `request.json`, and every body is in `request.body` as bytes
+  (a Buffer), say to check a webhook's signature.
+- **Errors as JSON**, like `{ "error": "Not found" }`, `notFound()` included.
+- **Other sites' pages may read the answers only when allowed**, with *config* `cors` in
+  `goal.config.js`: a list of origins, or `'*'` for any. Preflight `OPTIONS` requests are answered
+  for you.
+
+```jsx
+group /api/v1 api {
+  before {
+    const user = await userFromToken(request.headers.authorization);
+    if (!user) return json({ error: 'sign in' }, 401);
+    request.user = user;
+  }
+
+  route GET /notes { return json(await notes(request.user)); }
+  route POST /notes { return json(await addNote(request.user, request.json), 201); }
+}
+```
+
+```js
+// goal.config.js
+export default { cors: ['https://app.example.com'] };
+```
+
 ## Matching
 
 - Fixed paths win over paths with parameters: `/users/new` is chosen before `/users/{id}`.

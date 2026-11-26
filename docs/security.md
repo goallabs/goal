@@ -46,6 +46,11 @@ says cross-site, and without `Sec-Fetch-Site: same-origin` the request needs the
 that send data get the token as a hidden field automatically, server functions send it for you, and
 your own `fetch` can send it as the `x-csrf-token` header (*config* `csrf: false` to turn it off).
 
+Routes in a [`group /path api`](routes#api-routes) skip the check, because they neither read nor set
+cookies: a request from another site carries nothing to misuse, and the route checks a token from a
+header itself. Other sites' pages can read their answers only when *config* `cors` lists the site
+(or is `'*'`), and never with cookies.
+
 ## Only what the browser needs
 
 A component's root element carries its state and only the props its browser code reads. Props used
