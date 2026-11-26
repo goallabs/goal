@@ -46,7 +46,7 @@ const UNSEEN = new Set(['head', 'title', 'meta', 'link', 'base']); // never show
 // by file): render.js for rendering components, call.js for server function calls, load.js for
 // call(), and keyed.js for keyed lists, which only browser code imports; request.js, the request a
 // server function runs for, only server code does.
-const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], load: ['_$lc', '_$lw', '_$ll', '_$lb'], keyed: ['_$L'], request: ['_$req'] };
+const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], load: ['_$lc', '_$lw', '_$ll', '_$lb'], keyed: ['_$L', '_$lf'], request: ['_$req'] };
 const ROUTE_HELPERS = ['redirect', 'json', 'notFound', 'cookie', 'reply', 'stream', 'events'];
 const FORM_METHODS = ['get', 'post', 'put', 'patch', 'delete'];
 
@@ -915,18 +915,11 @@ function keyedList(c, cx, parts) {
       ...(t.isBlockStatement(fn.node.body) ? [...pre, ...fn.node.body.body.slice(0, -1)] : pre),
       t.variableDeclaration('const', [
         t.variableDeclarator(kv, row.key),
-        t.variableDeclarator(o, t.callExpression(t.memberExpression(id('_$C'), t.identifier('get')), [kv])),
+        t.variableDeclarator(o, t.callExpression(id('_$C'), [kv, idx])),
         t.variableDeclarator(same, and([o, t.binaryExpression('===', member(1), item), ...(byIndex ? [t.binaryExpression('===', member(2), idx)] : [])])),
         ...row.vals.flatMap((v, i) => (outer[i] ? [t.variableDeclarator(outer[i], v)] : [])),
       ]),
-      t.variableDeclaration('const', [
-        t.variableDeclarator(
-          t.identifier('_$w'),
-          t.conditionalExpression(and([same, ...outer.flatMap((d, i) => (d ? [t.binaryExpression('===', member(i + 3), d)] : []))]), o, t.arrayExpression([kv, item, idx, ...vals])),
-        ),
-      ]),
-      t.expressionStatement(t.callExpression(t.memberExpression(id('_$N'), t.identifier('set')), [kv, t.identifier('_$w')])),
-      t.returnStatement(t.identifier('_$w')),
+      t.returnStatement(t.conditionalExpression(and([same, ...outer.flatMap((d, i) => (d ? [t.binaryExpression('===', member(i + 3), d)] : []))]), o, t.arrayExpression([kv, item, idx, ...vals]))),
     ]);
   }
   let list = e.node;
@@ -937,7 +930,9 @@ function keyedList(c, cx, parts) {
     cx.tpls.push(t.variableDeclaration('const', [t.variableDeclarator(none, t.arrayExpression([]))]));
     list = t.conditionalExpression(shape.test, shape.yes ? list : none, shape.yes ? none : list);
   }
-  cx.binds[k] = { k: [2, k, name, row.whole ? null : row.parts], e: t.callExpression(t.identifier('_$L'), [list, rowHandlers]) };
+  // In the browser the list keeps its rows on the state (_$c0, …), for the next run to find them
+  const keep = cx.mode === 'server' ? [] : [t.identifier('_$s'), t.stringLiteral('_$c' + k)];
+  cx.binds[k] = { k: [2, k, name, row.whole ? null : row.parts], e: t.callExpression(t.identifier('_$L'), [list, rowHandlers, ...keep]) };
   parts.push('<!--', cx.iId, `.${k}-->`, t.callExpression(t.identifier('_$hl'), [list, t.identifier(name)]), '<!--/-->');
   if (shape.other) {
     const other = t.cloneNode(shape.other, true);
@@ -1192,8 +1187,7 @@ function clientComponent(fn, info) {
   for (const k of info.cache)
     pre.push(
       t.variableDeclaration('const', [
-        t.variableDeclarator(t.identifier('_$C' + k), t.logicalExpression('||', t.memberExpression(s, t.identifier('_$c' + k)), t.newExpression(t.identifier('Map'), []))),
-        t.variableDeclarator(t.identifier('_$N' + k), t.assignmentExpression('=', t.memberExpression(s, t.identifier('_$c' + k)), t.newExpression(t.identifier('Map'), []))),
+        t.variableDeclarator(t.identifier('_$C' + k), t.callExpression(t.identifier('_$lf'), [t.memberExpression(s, t.identifier('_$c' + k))])),
       ]),
     );
   const handlers = t.arrayExpression([...info.hs, ...(info.dyn ? [t.spreadElement(t.identifier('_$H'))] : [])]);

@@ -509,7 +509,7 @@ describe('keyed lists', () => {
     const code = r.clients[0].code;
     expect(code).toContain('export const _$k = [[2, 0, _$t0, [[1, [], "class"], [0, [0]], [1, [1, 0], "href"], [0, [1, 0]]]]];');
     // one import from keyed.js: the list's helper, and the patcher and row handlers it gives the loader
-    expect(code).toContain('import { _$L, _$lp, _$lh } from "goaljs/keyed";');
+    expect(code).toContain('import { _$L, _$lf, _$lp, _$lh } from "goaljs/keyed";');
     expect(code).toContain('export { _$lp, _$lh };');
     expect(code.indexOf('const _$t0')).toBeLessThan(code.indexOf('export const _$k'));
     const m = await loadChunk('/c/T.js');
@@ -585,7 +585,7 @@ describe('keyed lists', () => {
     const code = build(src).clients[0].code;
     expect(code).toContain('export const _$k = [[2, 0, _$t0, [[0, []]]], [2, 1, _$t2, [[0, []]]], [0, 2], [2, 3, _$t4, [[0, []]]], [0, 4]];');
     expect(code).toContain('const _$t1 = [];'); // no rows: the same empty list on every run
-    expect(code).toContain(') : _$t1, (x, _$j) => [])');
+    expect(code).toContain(') : _$t1, (x, _$j) => [], _$s, "_$c0")');
     expect(code).toContain('_$L(on ? _$t5 : items.map(');
     expect(code).toContain('_$h(on ? null : _$m(`<li>none</li>`))');
     expect(code).toContain('_$h(on ? _$m(`<li>shown</li>`) : null)');
