@@ -7,7 +7,7 @@ function setup(body, { head = '' } = {}) {
   document.head.innerHTML = head;
   document.body.innerHTML = body;
   let stream;
-  const next = { ok: true, html: '' };
+  const next = { ok: true, html: '', redirected: false };
   const sent = [];
   const w = {
     location: { href: 'http://localhost/page', reload: vi.fn() },
@@ -17,7 +17,7 @@ function setup(body, { head = '' } = {}) {
     DOMParser: window.DOMParser,
     fetch: vi.fn(async (url, opts) => {
       sent.push({ url, kept: JSON.parse(opts.headers['x-goal-hmr']) });
-      return { ok: next.ok, text: async () => next.html };
+      return { ok: next.ok, redirected: next.redirected, text: async () => next.html };
     }),
   };
   hmr(document, w, (url) => (stream = { url }));
@@ -161,6 +161,14 @@ describe('live updates in goal dev', () => {
     two.send({ type: 'update', version: 'v2' });
     await vi.waitFor(() => expect(two.w.location.reload).toHaveBeenCalled());
     expect(two.w.fetch).not.toHaveBeenCalled();
+  });
+
+  it('reload when asking for the page again sends elsewhere, rather than show that page under this URL', async () => {
+    const { w, next, send } = setup('<p>projects</p>');
+    Object.assign(next, { redirected: true, html: '<body><p>sign in</p></body>' });
+    send({ type: 'update', version: 'v2' });
+    await vi.waitFor(() => expect(w.location.reload).toHaveBeenCalled());
+    expect(document.querySelector('p').textContent).toBe('projects');
   });
 
   it("show the route's error when rendering the page again fails", async () => {

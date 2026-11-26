@@ -56,6 +56,7 @@ export function hmr(d, w, connect = (url) => new w.EventSource(url)) {
     const header = JSON.stringify(kept);
     if (header.length > 8000) return w.location.reload(); // more than a request header should carry
     const res = await w.fetch(w.location.href, { headers: { 'x-goal-hmr': header } });
+    if (res.redirected) return w.location.reload(); // the page sends elsewhere now (signed out): go there, rather than show that page here
     const text = await res.text();
     if (!res.ok) return show(text); // the route failed: goal dev answers with the stack
     const next = new w.DOMParser().parseFromString(text, 'text/html');

@@ -139,9 +139,13 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
   const all = files(app);
   const sources = new Map(all.filter((f) => f.endsWith('.goal')).map((rel) => [rel, readFileSync(join(app, rel), 'utf8')]));
   const link = linker(app, all, sources, cache?.exports);
+  // The app's .js modules are imported under a name of their own content, not the build's: an edit to
+  // a .goal file keeps them loaded in goal dev, and what they hold (sessions, data) with them
+  const js = all.filter((f) => /\.(m?js|json)$/.test(f));
+  const jsVersion = createHash('sha256').update(js.map((f) => `${f}\0${readFileSync(join(app, f))}`).join('\0')).digest('hex').slice(0, 10);
   for (const rel of all) {
     if (!rel.endsWith('.goal')) {
-      if (/\.(m?js|json)$/.test(rel)) write(join(out, 'server', rel), readFileSync(join(app, rel)));
+      if (js.includes(rel)) write(join(out, 'server', rel), readFileSync(join(app, rel)));
       continue;
     }
     const base = rel.slice(0, -5);
@@ -157,7 +161,7 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
       cache?.compiled.set(rel, { key, r });
     }
     if (dev) r = { ...r, server: r.server.replaceAll(VERSION, version), render: r.render.replaceAll(VERSION, version), clients: r.clients.map((c) => ({ ...c, code: c.code.replaceAll(VERSION, version) })) };
-    const server = r.server.replace(/((?:from|import)\s*["'])(\.{1,2}\/[^"']+?)(\.goal|\.m?js)(["'])/g, (_, a, p, ext, b) => `${a}${p}${ext === '.goal' ? '.js' : ext}?v=${version}${b}`);
+    const server = r.server.replace(/((?:from|import)\s*["'])(\.{1,2}\/[^"']+?)(\.goal|\.m?js)(["'])/g, (_, a, p, ext, b) => `${a}${p}${ext === '.goal' ? '.js' : ext}?v=${ext === '.goal' ? version : jsVersion}${b}`);
     write(join(out, 'server', base + '.js'), server);
     if (r.routes.length || r.serverFunctions.length) routeFiles.push(base);
     for (const f of r.serverFunctions) routes.push({ key: f.path, file: rel, label: `server function ${f.name}  POST ${f.path}` });

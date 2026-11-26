@@ -58,7 +58,7 @@ const Base = Parser.extend(jsx());
 const TOP = { path: '/', params: [], types: {}, api: false, before: [] }; // what a route outside any group joins
 
 /**
- * @returns {{ code: string, routes: { method: string, path: string, params: string[], types: object, name: string, api?: true, before?: string[] }[],
+ * @returns {{ code: string, routes: { method: string, path: string, params: string[], types: object, name: string, api?: string, before?: string[] }[],
  *   befores: { name: string, params: string[] }[],
  *   serverFns: { name: string, exported: boolean }[], map: (pos: number) => number, strict: boolean,
  *   style: { css: string, at: number } | null,
@@ -234,7 +234,7 @@ export function desugar(source, file) {
       const name = `_$r${routes.length}`;
       const input = m[3] === '(' ? this.goalInput(start, start + head.length - 1) : null;
       const length = input ? this.start + 1 - start : head.length;
-      routes.push({ method, ...p, name, ...(group.api ? { api: true } : {}), ...(group.before.length ? { before: group.before } : {}), ...(input ? { input, at: start } : {}) });
+      routes.push({ method, ...p, name, ...(group.api ? { api: group.api } : {}), ...(group.before.length ? { before: group.before } : {}), ...(input ? { input, at: start } : {}) });
       return this.goalHandler(start, length, name, 'GoalRoute');
     }
 
@@ -296,7 +296,8 @@ export function desugar(source, file) {
       const start = this.start;
       const m = /^group[ \t]+((?:\{[^}\n]*\}|[^\s{])+)(?:[ \t]+(api))?[ \t]*\{/.exec(this.input.slice(start));
       if (!m) fail(start, 'write a group as: group /path { routes }, or group /path api { routes }');
-      const group = { ...this.goalPath(start, m[1], outer), api: outer.api || !!m[2], before: outer.before };
+      const group = { ...this.goalPath(start, m[1], outer), before: outer.before };
+      group.api = outer.api || (!!m[2] && group.path); // the path of the api group: what's under it is answered as JSON, 404s too
       edits.push({ at: start, del: m[0].length, ins: '' });
       const node = this.startNode();
       this.pos = start + m[0].length;

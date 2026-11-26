@@ -368,6 +368,29 @@ describe('components rendered in the browser', () => {
     for (const gone of ['store', 'save', 'main']) expect(r.render).not.toContain(gone); // server code stays on the server
   });
 
+  it('render the components in the children of one whose props read state in its hole, the first hole too', () => {
+    const r = build(`
+      function Card({ title, children }) { return <section><h2>{title}</h2>{children}</section>; }
+      function Leaf({ n }) { var k = n; return <i onclick={() => k++}>{k}</i>; }
+      export function T() {
+        var count = 0;
+        return <div><button onclick={() => count++}>+</button><Card title={'n=' + count}><Leaf n={1} /></Card><b>{count}</b></div>;
+      }`);
+    const t = r.clients.find((c) => c.name === 'T').code;
+    expect(t).toMatch(/Leaf\(\{\n\s+"n": 1\n\s+\}, _\$B\.h\(0\)\)/);
+    expect(t.match(/_\$B\.h\(\d\)/g)).toEqual(['_$B.h(0)', '_$B.h(0)']); // Leaf, then Card: hole 0 is Card's
+  });
+
+  it("name the file when goal.js itself fails on it", () => {
+    const typesOf = () => {
+      throw new TypeError('x is undefined');
+    };
+    expect(() => compile('#strict\nimport { A } from "./b.goal";', { file: 'ui/a.goal', typesOf })).toThrow(
+      "ui/a.goal: goal.js failed on this file (x is undefined). That's a bug in goal.js: please report it with the file.",
+    );
+    expect(() => compile('#strict\nimport { A } from "./b.goal";', { typesOf })).toThrow(/^input\.goal: goal\.js failed/);
+  });
+
   it('leave out module code the components never use, unless it runs something', () => {
     const r = build(`
       const cache = {};

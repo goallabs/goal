@@ -163,6 +163,15 @@ export function A({ notes, title, pick, opt }: { notes: Note[], title?: string, 
     expect(fits('(string | number)[]', '(string | number)[]')).toBe('ok');
     expect(fits('((a: string) => void)[]', 'unknown')).toBe('ok');
   });
+
+  it('fits literals in objects and lists to literal types, and widens them in a variable without a type', () => {
+    const W = "type Week = { day: 'mon' | 'sun' };\n";
+    expect(errorOf(W + "const a: Week = { day: 'mon' }; const b: Week[] = [{ day: 'sun' }, { day: 'mon' }]; const c: ('a' | 'b')[] = ['a'];")).toBe('ok');
+    expect(errorOf(W + "function f(w: Week) { return w; } f({ day: 'sun' });")).toBe('ok');
+    expect(errorOf(W + "const a: Week = { day: 'tue' };")).toBe('a is Week, not { day: string }');
+    expect(errorOf(W + "const o = { day: 'mon', n: [1] }; const a: Week = o;")).toBe('a is Week, not { day: string, n: number[] }');
+    expect(errorOf("var o = { day: 'mon', n: [1] }; function f() { o = { day: 'sun', n: [2, 3] }; }")).toBe('ok');
+  });
 });
 
 describe('#strict files importing each other', () => {

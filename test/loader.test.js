@@ -438,6 +438,37 @@ describe('components rendered in the browser, keeping state by place and by key'
     fire('#flip', 'click'); // the rows inside each row move too
     await vi.waitFor(() => expect(counts(d)).toBe('b2=1 b1=0 a2=0 a1=0'));
   });
+
+  it('in the children of a component whose props read state, and that component keeps its own too', async () => {
+    const { d, $, fire } = await mount(
+      `export function Page() {
+        var open = false;
+        var other = 0;
+        return (
+          <main>
+            <button id="other" onclick={() => other++}>{other}</button>
+            <button id="open" onclick={() => (open = !open)}>o</button>
+            <Modal open={open}><Counter id="a" /></Modal>
+          </main>
+        );
+      }
+      export function Modal({ open, children }) {
+        var z = 0;
+        return <section class={open ? 'open' : ''}><i onclick={() => z++}>{z}</i>{children}</section>;
+      }
+      ${COUNT}`,
+      'Page',
+    );
+    fire('#a button', 'click');
+    fire('#a button', 'click');
+    fire('section i', 'click');
+    await vi.waitFor(() => expect([counts(d), $('section i').textContent]).toEqual(['a=2', '1']));
+    fire('#other', 'click'); // the modal renders again in the page's hole
+    await vi.waitFor(() => expect($('#other').textContent).toBe('1'));
+    fire('#open', 'click');
+    await vi.waitFor(() => expect($('section').className).toBe('open'));
+    expect([counts(d), $('section i').textContent]).toEqual(['a=2', '1']);
+  });
 });
 
 describe('children', () => {

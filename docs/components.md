@@ -179,7 +179,11 @@ export function Counter({ start = 0 }) {
   stylesheet under `public/` and link it.
 - `goal build` puts every file's style block in one stylesheet, `/c/_/style.css`, and each page links
   it at the end of its head, after the page's own stylesheets. With a `postcss.config.js`, it goes
-  through PostCSS too. There is no inline style, so the strict Content-Security-Policy stays.
+  through PostCSS too.
+- A `style` attribute works too, for what changes with state, like `style={'width:' + pct + '%'}`.
+  Its value is escaped like any attribute's. The Content-Security-Policy allows style attributes
+  (`style-src-attr 'unsafe-inline'`), and nothing else inline: no `<style>` element, no inline
+  stylesheet.
 
 ## Compile errors
 

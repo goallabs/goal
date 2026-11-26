@@ -77,6 +77,8 @@ sent.
 
 Markup that starts with `<html>` is the whole document: put `<title>` and
 `<link rel="stylesheet" href="/style.css" />` in its `<head>`. Other markup goes in a plain document.
+A component can be that document too: a layout, say `Shell({ title, children })`, that returns
+`<html>` with `{children}` in its `<main>`, and that each route returns with its own content inside.
 
 ## Groups
 
@@ -110,7 +112,8 @@ or a page on another site. Its routes, and those of the groups inside it, work d
   header, such as `Authorization`, in `before`.
 - **Any body.** JSON still arrives in `request.json`, and every body is in `request.body` as bytes
   (a Buffer), say to check a webhook's signature.
-- **Errors as JSON**, like `{ "error": "Not found" }`, `notFound()` included.
+- **Errors as JSON**, like `{ "error": "Not found" }`, `notFound()` included, and a request under
+  the group's path that no route takes, or whose typed parameter doesn't match.
 - **Other sites' pages may read the answers only when allowed**, with *config* `cors` in
   `goal.config.js`: a list of origins, or `'*'` for any. Preflight `OPTIONS` requests are answered
   for you.

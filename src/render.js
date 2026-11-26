@@ -80,7 +80,7 @@ export const _$B = {
       k: (chunk) => {
         const j = q.findIndex((x) => x.getAttribute('m-c').split('?')[0] === chunk);
         if (j < 0) return null;
-        const x = q.splice(0, j + 1).pop();
+        const [x] = q.splice(j, 1); // only that one: a component's children render before it, but come after it in the page
         return x.$s ?? JSON.parse(x.getAttribute('m-s')); // only a component with state asks
       },
     });

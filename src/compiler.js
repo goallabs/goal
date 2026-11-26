@@ -98,6 +98,16 @@ function emit(node) {
  *   rendered for a live update starts from the state the page kept (see hmr.js).
  */
 export function compile(source, opts = {}) {
+  try {
+    return compileFile(source, opts);
+  } catch (e) {
+    if (e instanceof GoalError) throw e;
+    // A crash inside goal.js: still say which file it was compiling
+    throw new Error(`${opts.file ?? 'input.goal'}: goal.js failed on this file (${e.message}). That's a bug in goal.js: please report it with the file.`, { cause: e });
+  }
+}
+
+function compileFile(source, opts) {
   const file = opts.file ?? 'input.goal';
   const base = opts.base ?? file.replace(/\.goal$/, '');
   const o = { file, rt: opts.rt ?? 'goaljs/rt', keyed: opts.keyed ?? 'goaljs/keyed', chunk: opts.chunk ?? ((n) => `/${n}.js`), dev: !!opts.dev, sfns: new Map() };
@@ -177,7 +187,7 @@ const routeEntry = (method, path, handler, { types = {}, api, before, input } = 
     t.objectProperty(t.identifier('path'), t.stringLiteral(path)),
     t.objectProperty(t.identifier('handler'), handler),
     ...(Object.keys(types).length ? [t.objectProperty(t.identifier('types'), t.valueToNode(types))] : []), // typed path parameters
-    ...(api ? [t.objectProperty(t.identifier('api'), t.booleanLiteral(true))] : []), // in a group /path api
+    ...(api ? [t.objectProperty(t.identifier('api'), t.stringLiteral(api))] : []), // in a group /path api: that group's path
     ...(before ? [t.objectProperty(t.identifier('before'), t.arrayExpression(before.map((b) => t.identifier(b))))] : []), // its groups' before blocks
     ...(input ? [t.objectProperty(t.identifier('input'), t.valueToNode(input))] : []), // the types of its input, checked per request
   ]);
@@ -199,24 +209,25 @@ function transform(ast, mode, o, routes) {
   serverCalls(program, comps, o);
   const components = comps.map((fn) => component(fn, program, mode, o));
   if (mode === 'server') for (const r of routeFns) route(r, byName.get(r.node.id.name), program);
-  if (mode === 'server' && !o.render) for (const fn of serverFnPaths(program, o)) withRequest(fn);
+  if (mode === 'server' && !o.render) withRequest(program, comps);
   // Markup outside components and routes (helpers that return markup) becomes plain templates.
   program.traverse(jsxVisitor({ kind: 'module', hs: null, scope: program.scope, program: program.scope, reactive: new Set() }));
   return { program, components };
 }
 
-// A server function's body starts by taking the request it runs for (see request.js), unless the
-// function has a `request` of its own.
-function serverFnPaths(program, o) {
-  return program
-    .get('body')
-    .map((s) => (s.isExportNamedDeclaration() ? s.get('declaration') : s))
-    .filter((d) => d.isFunctionDeclaration() && o.own.has(d.node.id.name));
-}
-
-function withRequest(fn) {
-  if (fn.scope.hasOwnBinding('request')) return;
-  fn.get('body').unshiftContainer('body', t.variableDeclaration('const', [t.variableDeclarator(t.identifier('request'), t.callExpression(t.identifier('_$req'), []))]));
+// In server code, `request` that isn't a variable of the code's own is the request it runs for (see
+// request.js): in a server function and in the helpers it calls, at any depth; undefined outside a
+// request. Not in components, whose code runs in the browser too.
+function withRequest(program, comps) {
+  const skip = new Set(comps.map((c) => c.node));
+  program.traverse({
+    Function(p) {
+      if (skip.has(p.node)) p.skip();
+    },
+    ReferencedIdentifier(p) {
+      if (p.node.name === 'request' && !p.scope.hasBinding('request')) p.replaceWith(t.callExpression(t.identifier('_$req'), []));
+    },
+  });
 }
 
 // Assignments JavaScript refuses when the code runs, reported when it compiles instead: to a const
@@ -1011,10 +1022,11 @@ function componentCall(p, cx, tag, top) {
       props.push(t.objectProperty(t.stringLiteral('children'), t.callExpression(t.identifier('_$m'), [template(parts)])));
     } else {
       const parts = [];
-      const was = cx.own;
+      const [was, at] = [cx.own, cx.at];
       cx.own = true;
+      if (live) cx.at = cx.binds.length; // the hole this component becomes: components in its children render in it too
       children(p, cx, top && !live, parts);
-      cx.own = was;
+      [cx.own, cx.at] = [was, at];
       props.push(t.objectProperty(t.stringLiteral('children'), t.callExpression(t.identifier('_$m'), [template(parts)])));
     }
   }

@@ -20,7 +20,10 @@ app's, and `goal start` reads it from there.
 Every value is escaped in text and in attributes. There is no raw-HTML escape hatch. `<script>`,
 `<style>`, `srcdoc` and string event handlers (`onclick="..."`) are compile errors. A file's CSS goes
 in its [style block](components#styles), which `goal build` puts in a stylesheet of its own, so pages
-need no inline styles.
+need no `<style>` elements. `style` attributes are allowed, since styles that change with state need
+them: the policy sends `style-src-attr 'unsafe-inline'`. A value from data can only style the element
+it's on, and the policy's `img-src 'self' data:` and `font-src 'self'` keep a CSS `url()` from
+loading anything from another site.
 
 ## URLs
 
@@ -65,7 +68,10 @@ only while rendering on the server never reach the page.
   clients apart by `X-Forwarded-For`.
 - Request bodies are limited to 1 MB (*config* `bodyLimit`).
 - `redirect()` stays on this site unless told otherwise.
-- Cookies are `HttpOnly`, `Secure` and `SameSite=Lax` unless a route says otherwise.
+- Cookies are `HttpOnly`, `Secure` and `SameSite=Lax` unless a route says otherwise. Browsers keep
+  `Secure` cookies only over HTTPS, and on `localhost`. Opened over plain HTTP at another address,
+  say a phone on your network at `http://192.168.1.20:5648`, the page gets no cookies, the CSRF one
+  included, so forms answer 403. Test that way through an HTTPS tunnel.
 - Static files are served only from `public/` and the chunks folder.
 - Error details (the stack) are shown only in `goal dev`. Otherwise the page is a plain error page, and
   the error is logged.

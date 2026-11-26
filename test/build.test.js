@@ -116,7 +116,17 @@ describe('build', () => {
       'package.json': '{ "type": "commonjs" }', // npm init -y writes this
     });
     const r = await build(dir);
-    expect(readFileSync(join(dir, 'dist/server/app.js'), 'utf8')).toContain(`from './lib/hi.js?v=${r.version}'`);
+    const hi = () => readFileSync(join(dir, 'dist/server/app.js'), 'utf8').match(/from '\.\/lib\/hi\.js\?v=(\w+)'/)[1];
+    const v = hi();
+    expect(v).toMatch(/^[0-9a-f]{10}$/);
+    expect(v).not.toBe(r.version);
+    // Named by the .js files' content, so goal dev keeps them loaded, and what they hold, through a .goal edit
+    writeFileSync(join(dir, 'app.goal'), readFileSync(join(dir, 'app.goal'), 'utf8') + '\n// edited');
+    await build(dir);
+    expect(hi()).toBe(v);
+    writeFileSync(join(dir, 'data.json'), '{"n":2}');
+    await build(dir);
+    expect(hi()).not.toBe(v);
     expect(existsSync(join(dir, 'dist/server/lib/hi.js'))).toBe(true);
     expect(existsSync(join(dir, 'dist/server/data.json'))).toBe(true);
     expect(existsSync(join(dir, 'dist/server/goal.config.js'))).toBe(true);

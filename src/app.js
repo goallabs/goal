@@ -216,10 +216,12 @@ function staticFile(dirs, pathname) {
   return null;
 }
 
+const split = (path) => (path === '/' ? [] : path.slice(1).split('/'));
+
 /** Routes sorted so fixed paths win over ones with parameters. */
 function table(routes) {
   return routes
-    .map((r, i) => ({ ...r, i, segs: r.path === '/' ? [] : r.path.slice(1).split('/') }))
+    .map((r, i) => ({ ...r, i, segs: split(r.path), ...(r.api && { api: split(r.api) }) }))
     .map((r) => ({ ...r, n: r.segs.filter((s) => s[0] === '{').length }))
     .sort((a, b) => a.n - b.n || a.i - b.i);
 }
@@ -384,6 +386,8 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
       }
       let method = req.method === 'HEAD' ? 'GET' : req.method;
       let m = match(sorted, method, segs);
+      // No route, under the path of an api group (its parameters match anything): a JSON 404
+      if (!m) api = sorted.some((r) => r.api?.length <= segs.length && r.api.every((s, i) => s[0] === '{' || s === segs[i]));
       if (m?.api) {
         api = true;
         // Other sites may read the answers only when goal.config.js's cors lets them (no cookies are read, so none can be stolen)
@@ -450,7 +454,7 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
         const kept = (ctx.hmr = keptState(req.headers['x-goal-hmr']));
         ctx.k = (chunk) => {
           const j = kept.findIndex((x) => x?.c === chunk);
-          return j < 0 ? null : kept.splice(0, j + 1).pop().s;
+          return j < 0 ? null : kept.splice(j, 1)[0].s; // only that one: a component's children render before it
         };
       }
       request = box.r = { method, path, url, tenant, base, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies: api ? {} : cookies, form, files, json: data, body: raw, signal: gone.signal };

@@ -8,18 +8,27 @@ import { _$req } from '../src/request.js';
 import { build, load, TMP } from './helpers.js';
 
 describe('request in server functions', () => {
-  it('starts each server function on the server by taking the request, unless it has its own', () => {
+  it('gives server code the request it runs for: server functions and the helpers they call, unless they have their own', () => {
     const r = build(`
-      export server function a() { return request.tenant; }
+      function who() { return request?.tenant; }
+      export server function a() { return [request.tenant, who()]; }
       server function b(request) { return request; }
       server function c() { const request = 1; return request; }
+      route GET /r { return json(request.path); }
       export function A() { var n = 0; return <b onclick={() => (n = a())}>{n}</b>; }`);
     expect(r.server).toContain('import { _$req } from');
-    expect(r.server).toMatch(/async function a\(\) \{\n\s+const request = _\$req\(\);/);
+    expect(r.server).toMatch(/function who\(\) \{\n\s+return _\$req\(\)\?\.tenant;/);
+    expect(r.server).toMatch(/async function a\(\) \{\n\s+return \[_\$req\(\)\.tenant, who\(\)\];/);
     expect(r.server).toMatch(/async function b\(request\) \{\n\s+return request;/);
     expect(r.server).toMatch(/async function c\(\) \{\n\s+const request = 1;/);
+    expect(r.server).toMatch(/json\(request\.path\)/); // a route's own request
     expect(r.clients[0].code).not.toContain('_$req');
     expect(r.render).not.toContain('_$req');
+  });
+
+  it('leaves request alone in a component, whose code runs in the browser too', () => {
+    const r = build('export function A() { var n = 0; return <b onclick={() => n++}>{typeof request}</b>; }');
+    expect(r.server).toContain('_$h(typeof request)');
   });
 
   it('is undefined outside a request', () => {

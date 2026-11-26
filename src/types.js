@@ -51,8 +51,16 @@ const union = (of) => {
   return flat.length === 1 ? flat[0] : { k: 'union', of: flat };
 };
 
-/** A literal's own type: what a var it starts takes (var n = 0 is a number, not just 0). */
-const widen = (x) => (x.k === 'lit' ? T(typeof x.v) : x.k === 'union' ? union(x.of.map(widen)) : x);
+/**
+ * A literal's own type: what a var it starts takes (var n = 0 is a number, not just 0), inside objects
+ * and lists too. Until then they keep their literals, so { day: 'mon' } fits { day: 'mon' | 'sun' }.
+ */
+const widen = (x) =>
+  x.k === 'lit' ? T(typeof x.v)
+  : x.k === 'union' ? union(x.of.map(widen))
+  : x.k === 'array' ? { k: 'array', of: widen(x.of) }
+  : x.k === 'object' ? { k: 'object', fields: Object.fromEntries(Object.entries(x.fields).map(([n, f]) => [n, { ...f, type: widen(f.type) }])) }
+  : x;
 
 /**
  * Checks a #strict file. `d` is what desugar() read (its types), `other(spec)` what another .goal file
@@ -240,12 +248,12 @@ export function check(ast, d, other, fail) {
       const b = p.scope.getBinding(n.name);
       return b ? bindingType(b) : UNKNOWN;
     }
-    if (p.isArrayExpression()) return { k: 'array', of: n.elements.length ? widen(union(p.get('elements').map(typeOf))) : T('never') };
+    if (p.isArrayExpression()) return { k: 'array', of: n.elements.length ? union(p.get('elements').map(typeOf)) : T('never') };
     if (p.isObjectExpression()) {
       const fields = {};
       for (const f of p.get('properties')) {
         if (!f.isObjectProperty() || f.node.computed) return UNKNOWN;
-        fields[t.isIdentifier(f.node.key) ? f.node.key.name : f.node.key.value] = { type: widen(typeOf(f.get('value'))), optional: false };
+        fields[t.isIdentifier(f.node.key) ? f.node.key.name : f.node.key.value] = { type: typeOf(f.get('value')), optional: false };
       }
       return { k: 'object', fields };
     }

@@ -61,8 +61,18 @@ server function myNotes() {
 }
 ```
 
-A function with a parameter or a variable named `request` keeps its own. Outside a request (a script,
-a test), `request` is `undefined`.
+The functions it calls see it too, at any depth, so a helper like `currentUser()` needs no argument:
+
+```jsx
+function currentUser() {
+  return sessions.get(request?.cookies.sid) ?? null;
+}
+```
+
+That's true of all server code in a `.goal` file, but not of `.js` files, which goal.js doesn't
+compile, nor of components, whose code runs in the browser too. A function with a parameter or a
+variable named `request` keeps its own. Outside a request (a script, a test), `request` is
+`undefined`.
 
 ## Loading data with call()
 

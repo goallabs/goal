@@ -74,7 +74,9 @@ state is too big to send. None of this is in `goal build`.
 
 A build in `goal dev` compiles again only the files that changed, and those that import one that did,
 and skips what only production needs (minifying, sizes), so on the demo a change is on the page about
-50 ms after the save. One build runs at a time: changes made during it go in the next, and a request
+50 ms after the save. The app's `.js` modules stay loaded through an edit to a `.goal` file, and
+what they hold with them (sessions, data kept in memory); an edit to a `.js` file loads them again.
+A page that now redirects (signed out, say) reloads, and goes there. One build runs at a time: changes made during it go in the next, and a request
 waits for it to finish.
 
 ## Debugging

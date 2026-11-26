@@ -35,7 +35,7 @@ group / { route GET /y { } route GET / { } }`,
     expect(d.code).not.toContain('group');
   });
 
-  it('give their routes the before blocks, outer first, and api to everything inside', () => {
+  it('give their routes the before blocks, outer first, and api, with the api group\'s path, to everything inside', () => {
     const d = desugar(
       `group /a api {
   before { }
@@ -46,8 +46,8 @@ route GET /e { }`,
       'a.goal',
     );
     expect(d.routes.map((r) => [r.path, r.api, r.before])).toEqual([
-      ['/a/b/c', true, ['_$b0', '_$b1']],
-      ['/a/d', true, ['_$b0']],
+      ['/a/b/c', '/a', ['_$b0', '_$b1']],
+      ['/a/d', '/a', ['_$b0']],
       ['/e', undefined, undefined],
     ]);
     expect(d.befores).toEqual([
@@ -79,7 +79,7 @@ route GET /e { }`,
   });
 });
 
-const app = `
+const app = `#strict
 group /api api {
   before {
     if (request.headers.authorization !== 'Bearer k') return json({ error: 'sign in' }, 401);
@@ -89,6 +89,7 @@ group /api api {
   route POST /notes { return json({ got: request.json, by: request.user }, 201); }
   route POST /hook { return reply(request.body.toString()); }
   route GET /gone { return notFound(); }
+  route GET /n/{id: number} { return json(id); }
   route GET /crumb { cookie('a', 'b'); return json(1); }
   group /teams/{team} {
     before { if (team === 'closed') return json({ error: 'closed' }, 403); request.order = [request.user, team]; }
@@ -145,6 +146,10 @@ describe('route groups: requests', () => {
     const url = await start();
     const gone = await fetch(url + '/api/gone', { headers: auth });
     expect([gone.status, await gone.json()]).toEqual([404, { error: 'Not found' }]);
+    // A path under the group that no route takes, or whose typed parameter doesn't match, too
+    for (const path of ['/api/nothing', '/api/teams/red/who/else', '/api/n/1'])
+      expect([path, (await fetch(url + path, { headers: auth })).headers.get('content-type')]).toEqual([path, 'application/json; charset=utf-8']);
+    expect((await fetch(url + '/apix')).headers.get('content-type')).toBe('text/html; charset=utf-8');
     const wrong = await fetch(url + '/api/me', { method: 'DELETE', headers: auth });
     expect([wrong.status, wrong.headers.get('allow'), await wrong.json()]).toEqual([405, 'GET', { error: 'Method not allowed' }]);
     const crumb = await fetch(url + '/api/crumb', { headers: auth });

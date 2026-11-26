@@ -128,7 +128,7 @@ the page, with the file, line and column, until you fix it.
 ## Commands
 
 ```bash
-goal dev <app>      # build, serve with error details, update open pages when a file changes
+goal dev <app>      # build, serve with error details, update open pages when a file changes (--port 5648)
 goal build <app>    # compile into <app>/dist; prints the routes and each chunk's size
 goal start <app>    # serve a built app (--port 5648)
 goal check <app>    # check every file, types too, and list the errors
@@ -223,6 +223,8 @@ sent.
 
 Markup that starts with `<html>` is the whole document: put `<title>` and
 `<link rel="stylesheet" href="/style.css" />` in its `<head>`. Other markup goes in a plain document.
+A component can be that document too: a layout, say `Shell({ title, children })`, that returns
+`<html>` with `{children}` in its `<main>`, and that each route returns with its own content inside.
 
 ## Groups
 
@@ -256,7 +258,8 @@ or a page on another site. Its routes, and those of the groups inside it, work d
   header, such as `Authorization`, in `before`.
 - **Any body.** JSON still arrives in `request.json`, and every body is in `request.body` as bytes
   (a Buffer), say to check a webhook's signature.
-- **Errors as JSON**, like `{ "error": "Not found" }`, `notFound()` included.
+- **Errors as JSON**, like `{ "error": "Not found" }`, `notFound()` included, and a request under
+  the group's path that no route takes, or whose typed parameter doesn't match.
 - **Other sites' pages may read the answers only when allowed**, with *config* `cors` in
   `goal.config.js`: a list of origins, or `'*'` for any. Preflight `OPTIONS` requests are answered
   for you.
@@ -555,7 +558,11 @@ export function Counter({ start = 0 }) {
   stylesheet under `public/` and link it.
 - `goal build` puts every file's style block in one stylesheet, `/c/_/style.css`, and each page links
   it at the end of its head, after the page's own stylesheets. With a `postcss.config.js`, it goes
-  through PostCSS too. There is no inline style, so the strict Content-Security-Policy stays.
+  through PostCSS too.
+- A `style` attribute works too, for what changes with state, like `style={'width:' + pct + '%'}`.
+  Its value is escaped like any attribute's. The Content-Security-Policy allows style attributes
+  (`style-src-attr 'unsafe-inline'`), and nothing else inline: no `<style>` element, no inline
+  stylesheet.
 
 ## Compile errors
 
@@ -628,8 +635,18 @@ server function myNotes() {
 }
 ```
 
-A function with a parameter or a variable named `request` keeps its own. Outside a request (a script,
-a test), `request` is `undefined`.
+The functions it calls see it too, at any depth, so a helper like `currentUser()` needs no argument:
+
+```jsx
+function currentUser() {
+  return sessions.get(request?.cookies.sid) ?? null;
+}
+```
+
+That's true of all server code in a `.goal` file, but not of `.js` files, which goal.js doesn't
+compile, nor of components, whose code runs in the browser too. A function with a parameter or a
+variable named `request` keeps its own. Outside a request (a script, a test), `request` is
+`undefined`.
 
 ## Loading data with call()
 
@@ -710,7 +727,10 @@ app's, and `goal start` reads it from there.
 Every value is escaped in text and in attributes. There is no raw-HTML escape hatch. `<script>`,
 `<style>`, `srcdoc` and string event handlers (`onclick="..."`) are compile errors. A file's CSS goes
 in its [style block](https://goallabs.github.io/goal/components#styles), which `goal build` puts in a stylesheet of its own, so pages
-need no inline styles.
+need no `<style>` elements. `style` attributes are allowed, since styles that change with state need
+them: the policy sends `style-src-attr 'unsafe-inline'`. A value from data can only style the element
+it's on, and the policy's `img-src 'self' data:` and `font-src 'self'` keep a CSS `url()` from
+loading anything from another site.
 
 ## URLs
 
@@ -755,7 +775,10 @@ only while rendering on the server never reach the page.
   clients apart by `X-Forwarded-For`.
 - Request bodies are limited to 1 MB (*config* `bodyLimit`).
 - `redirect()` stays on this site unless told otherwise.
-- Cookies are `HttpOnly`, `Secure` and `SameSite=Lax` unless a route says otherwise.
+- Cookies are `HttpOnly`, `Secure` and `SameSite=Lax` unless a route says otherwise. Browsers keep
+  `Secure` cookies only over HTTPS, and on `localhost`. Opened over plain HTTP at another address,
+  say a phone on your network at `http://192.168.1.20:5648`, the page gets no cookies, the CSRF one
+  included, so forms answer 403. Test that way through an HTTPS tunnel.
 - Static files are served only from `public/` and the chunks folder.
 - Error details (the stack) are shown only in `goal dev`. Otherwise the page is a plain error page, and
   the error is logged.
@@ -937,7 +960,9 @@ state is too big to send. None of this is in `goal build`.
 
 A build in `goal dev` compiles again only the files that changed, and those that import one that did,
 and skips what only production needs (minifying, sizes), so on the demo a change is on the page about
-50 ms after the save. One build runs at a time: changes made during it go in the next, and a request
+50 ms after the save. The app's `.js` modules stay loaded through an edit to a `.goal` file, and
+what they hold with them (sessions, data kept in memory); an edit to a `.js` file loads them again.
+A page that now redirects (signed out, say) reloads, and goes there. One build runs at a time: changes made during it go in the next, and a request
 waits for it to finish.
 
 ## Debugging
