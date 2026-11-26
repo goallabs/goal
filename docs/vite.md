@@ -30,6 +30,9 @@ The app works as it does under `goal dev`:
 - [Live updates](how-it-works#live-updates-in-goal-dev) work the same way. A stylesheet change
   applies in place, a code change updates the page with each component's state kept, and a compile
   error shows over the page.
+- With a `postcss.config.js`, the stylesheets in `public/` go through PostCSS, as they do in
+  `goal dev`, and the app's `.env` is read into `process.env` (see [Tools](tools)).
+- [Vitest](tools) uses the plugin too, so tests can import `.goal` files.
 
 The plugin is for development. For production, build and serve the app with `goal build` and
 `goal start`.

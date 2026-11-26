@@ -1,6 +1,6 @@
 {
   "name": "goaljs",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "goal.js: var is state, let/const are computed, server-rendered and resumable",
   "homepage": "https://goallabs.github.io/goal/",
   "repository": {
@@ -14,7 +14,8 @@
     "test": "vitest run --coverage",
     "build:demo": "node bin/goal.js build examples/demo",
     "demo": "node bin/goal.js dev examples/demo",
-    "bench:virtual": "node bench/virtual.mjs"
+    "bench:virtual": "node bench/virtual.mjs",
+    "test:recipes": "node test/recipes/run.mjs"
   },
   "keywords": [
     "framework",
@@ -28,7 +29,8 @@
   "type": "module",
   "files": [
     "bin",
-    "src"
+    "src",
+    "recipes"
   ],
   "dependencies": {
     "@babel/generator": "^8.1.3",
@@ -62,6 +64,7 @@
     "./loader": "./src/loader.js",
     "./build": "./src/build.js",
     "./keyed": "./src/keyed.js",
-    "./vite": "./src/vite.js"
+    "./vite": "./src/vite.js",
+    "./eslint": "./src/eslint.js"
   }
 }

@@ -1,9 +1,10 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { request } from 'node:http';
 import { join } from 'node:path';
 import { createServer } from 'vite';
 import { goal } from '../src/vite.js';
-import { TMP } from './helpers.js';
+import { TMP, fakePostcss } from './helpers.js';
 
 const dir = join(TMP, `vite${process.pid}`);
 const files = {
@@ -17,6 +18,8 @@ const files = {
   'node_modules/x/skip.goal': 'not goal',
   'notes.txt': 'not a source',
   'public/style.css': 'p {}',
+  'env.goal': 'route GET /env { return json(process.env.GOAL_VITE_ENV); }',
+  '.env': 'GOAL_VITE_ENV=from .env',
 };
 rmSync(dir, { recursive: true, force: true });
 for (const [f, text] of Object.entries(files)) {
@@ -54,6 +57,7 @@ describe('the Vite plugin', () => {
     for (const source of ['/ui/Panel.goal', '/ui/store.goal?raw', '/app.goal?import']) expect((await fetch(url + source)).status).toBe(404); // the sources stay on the server
     expect(await (await fetch(url + '/style.css')).text()).toBe('p {}'); // Vite serves the public folder
     expect(await (await fetch(url + '/typed')).text()).toContain('<b>1</b>'); // #strict files checked against each other
+    expect(await (await fetch(url + '/env')).json()).toBe('from .env'); // the app's .env, as goal dev reads it
   });
 
   it('answers server functions behind the CSRF check', async () => {
@@ -101,6 +105,33 @@ describe('the Vite plugin', () => {
     expect(plugin.load(join(dir, 'a.js'))).toBe(undefined);
     expect(plugin.resolveId(join(dir, 'ui/Panel.goal.Panel.client.js'))).toBe(join(dir, 'ui/Panel.goal.Panel.client.js')); // already a path
     expect(plugin.resolveId('./x.js')).toBe(undefined);
+  });
+
+  it("runs the stylesheets in public/ through the app's PostCSS, and tells the pages they change with the code", async () => {
+    fakePostcss(dir);
+    writeFileSync(join(dir, 'postcss.config.js'), 'export default { plugins: { mark: {} } };');
+    const res = await fetch(url + '/style.css?v=2');
+    expect(res.headers.get('content-type')).toBe('text/css; charset=utf-8');
+    expect(await res.text()).toBe('p {}/* {} map style.css */');
+    expect((await fetch(url + '/missing.css')).status).toBe(404);
+    const outside = await new Promise((ok) => request(url + '/../app.goal.css', (r) => ok(r.statusCode)).end()); // not out of public/
+    expect(outside).not.toBe(200);
+    const events = await fetch(url + '/_goal/hmr');
+    const reader = events.body.getReader();
+    let text = '';
+    plugin.handleHotUpdate({ file: join(dir, 'ui/Counter.goal'), server });
+    while ((text.match(/data: /g) ?? []).length < 2) text += new TextDecoder().decode((await reader.read()).value);
+    expect(text.match(/"type":"\w+"/g)).toEqual(['"type":"update"', '"type":"css"']);
+    reader.cancel();
+    writeFileSync(join(dir, 'postcss.config.js'), 'export default { plugins: [() => { throw new Error("bad css"); }] };');
+    expect((await fetch(url + '/style.css')).status).toBe(500); // Vite shows the error
+    rmSync(join(dir, 'postcss.config.js'));
+  });
+
+  it("works without a .env", () => {
+    const other = join(TMP, `vite-noenv${process.pid}`);
+    mkdirSync(other, { recursive: true });
+    goal().configResolved({ root: other });
   });
 
   it('logs what fails in a route', async () => {

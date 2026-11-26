@@ -12,6 +12,9 @@ marked *config*:
 export default { csp: "default-src 'self'; script-src 'self' 'nonce-{nonce}'", csrf: false, bodyLimit: 5_000_000 };
 ```
 
+`goal build` copies it into `dist/server` with the server code, so it can import `.js` files of the
+app's, and `goal start` reads it from there.
+
 ## Escaping
 
 Every value is escaped in text and in attributes. There is no raw-HTML escape hatch. `<script>`,
@@ -54,3 +57,21 @@ only while rendering on the server never reach the page.
 - Static files are served only from `public/` and the chunks folder.
 - Error details (the stack) are shown only in `goal dev`. Otherwise the page is a plain error page, and
   the error is logged.
+
+## Errors
+
+An error that a route or server function throws is logged, and answered with a 500 page. To report it
+somewhere too, such as an error tracker, give `goal.config.js` an `onError` (*config*):
+
+```js
+import { report } from './report.js';
+
+export default {
+  onError(error, request) {
+    report(error, { method: request.method, path: request.path });
+  },
+};
+```
+
+It runs after the answer is on its way, so it doesn't slow the page, and an error it throws is
+logged. `goal add sentry` sets it up for [Sentry](tools).

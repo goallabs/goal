@@ -49,8 +49,9 @@ also cover [routes](https://goallabs.github.io/goal/routes),
 [types](https://goallabs.github.io/goal/types),
 [security](https://goallabs.github.io/goal/security),
 [how it works](https://goallabs.github.io/goal/how-it-works),
-[performance](https://goallabs.github.io/goal/performance), and working in
-[Vite](https://goallabs.github.io/goal/vite).
+[performance](https://goallabs.github.io/goal/performance), working in
+[Vite](https://goallabs.github.io/goal/vite), and [tools](https://goallabs.github.io/goal/tools):
+`goal add` sets up Tailwind CSS, Prisma, Drizzle, ESLint, Prettier, Vitest, Playwright and Sentry.
 
 ## Working on goal.js
 
@@ -59,10 +60,12 @@ npm install
 npm run demo            # builds examples/demo, serves it on http://localhost:3000, updates live on save
 npm test                # the tests, with 100% coverage of src/ required
 npm run bench:virtual   # a 100,000-row virtual list in headless Chrome: speed and memory
+npm run test:recipes    # sets up each goal add recipe in a new app, for real, and tests it
 ```
 
 The docs site is the `docs/` folder, published by GitHub Pages. `editors/vscode` is the VS Code
-extension.
+extension. `recipes/` holds the `goal add` recipes: pull requests that add a tool or a version are
+welcome (see [recipes/README.md](recipes/README.md)).
 
 ## License
 

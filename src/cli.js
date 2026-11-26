@@ -1,19 +1,31 @@
 // goal build [app] | goal start [app] [--port N] | goal dev [app] [--port N] | goal check [app]
+// | goal add [tool] [app]
 
 import { build, serve, dev, check } from './build.js';
+import { add } from './add.js';
 
-const USAGE = 'usage: goal build|start|dev|check [app folder] [--port 3000]';
+const USAGE = 'usage: goal build|start|dev|check [app folder] [--port 3000]\n       goal add [tool] [app folder]';
 
-/** The command, the app's folder (the current one by default) and the port (3000 by default). */
+/** The command, the app's folder (the current one by default), the port (3000 by default), and goal add's tool. */
 export function args(argv) {
   const [cmd, ...rest] = argv;
   const i = rest.indexOf('--port');
   const port = i < 0 ? 3000 : Number(rest.splice(i, 2)[1]);
-  return { cmd, app: rest[0] ?? '.', port };
+  const tool = cmd === 'add' ? rest.shift() : undefined;
+  return { cmd, app: rest[0] ?? '.', port, tool };
 }
 
-export async function main(argv, log = console.log) {
-  const { cmd, app, port } = args(argv);
+export async function main(argv, log = console.log, opts = {}) {
+  const { cmd, app, port, tool } = args(argv);
+  if (cmd === 'add') {
+    try {
+      await add(app, tool, { log, ...opts });
+      return 0;
+    } catch (e) {
+      log(e.message);
+      return 1;
+    }
+  }
   if (cmd === 'build') {
     try {
       const r = await build(app);

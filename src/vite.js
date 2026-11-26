@@ -11,14 +11,17 @@
 // (/ui/Panel.goal.render.js), which the browser renders components from. The .goal files themselves
 // are never served. When a file changes, the open pages are told as goal dev tells them (see hmr.js):
 // a stylesheet is swapped in place, and code renders the page again with each component's state.
+// With a postcss.config.js, the stylesheets in public/ go through PostCSS as goal build's do (see
+// css.js), and the app's .env is read into process.env as goal dev reads it.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compile } from './compiler.js';
 import { desugar } from './syntax.js';
 import { exportsOf } from './types.js';
 import { createApp } from './app.js';
+import { postcss, postcssConfig } from './css.js';
 
 const SRC = dirname(fileURLToPath(import.meta.url)); // compiled code imports the helpers from here
 const SKIP = new Set(['node_modules', 'dist', 'public']);
@@ -70,6 +73,7 @@ export function goal({ config = {} } = {}) {
     config: () => ({ appType: 'custom' }), // the app's routes answer pages, not an index.html
     configResolved(c) {
       root = c.root;
+      if (existsSync(join(root, '.env'))) process.loadEnvFile(join(root, '.env'));
     },
     // A component's browser code: /ui/Panel.goal.Panel.client.js; a file's render module, imported as
     // goal-render:./Panel.goal: /ui/Panel.goal.render.js. Both are made from the .goal file.
@@ -92,9 +96,20 @@ export function goal({ config = {} } = {}) {
     },
     configureServer(server) {
       // Before Vite's own middleware: the .goal files stay on the server, as with goal build.
-      server.middlewares.use((req, res, next) => {
-        if (!/\.goal(\?|$)/.test(req.url)) return next();
-        res.writeHead(404).end();
+      server.middlewares.use(async (req, res, next) => {
+        if (/\.goal(\?|$)/.test(req.url)) return res.writeHead(404).end();
+        // A stylesheet in public/, through the app's PostCSS
+        const path = req.url.split('?')[0];
+        const file = join(server.config.publicDir, path);
+        const css = path.endsWith('.css') && file.startsWith(join(server.config.publicDir, sep)) && existsSync(file) && (await postcss(root, true));
+        if (!css) return next();
+        let out;
+        try {
+          out = await css(readFileSync(file, 'utf8'), file, file);
+        } catch (e) {
+          return next(e);
+        }
+        res.writeHead(200, { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'no-cache' }).end(out);
       });
       // After it: what Vite doesn't serve, the app answers.
       return () =>
@@ -121,6 +136,7 @@ export function goal({ config = {} } = {}) {
       version++;
       server.moduleGraph.invalidateAll(); // the server code reads the new files
       tell({ type: file.endsWith('.css') ? 'css' : 'update', version });
+      if (!file.endsWith('.css') && postcssConfig(root)) tell({ type: 'css', version }); // the CSS may follow the code, as Tailwind's does
       return []; // the pages update themselves
     },
   };

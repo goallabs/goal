@@ -31,3 +31,19 @@ export async function load(src, opts) {
   const server = await import(pathToFileURL(join(dir, 'server.mjs')).href);
   return { r, server, chunks, loadChunk: (url) => import(chunks[url]) };
 }
+
+/**
+ * A stand-in for PostCSS and a plugin, in the app's node_modules: `mark` adds a comment saying its
+ * options, whether a source map was asked for, and which file it read.
+ */
+export function fakePostcss(dir) {
+  const pkg = {
+    postcss: 'module.exports = (plugins) => ({ process: async (css, o) => ({ css: plugins.reduce((c, p) => p(c, o), css) }) });',
+    mark: "module.exports = (opts) => (css, o) => css + '/* ' + JSON.stringify(opts) + (o.map ? ' map' : '') + ' ' + require('path').basename(o.from) + ' */';",
+  };
+  for (const [name, code] of Object.entries(pkg)) {
+    mkdirSync(join(dir, 'node_modules', name), { recursive: true });
+    writeFileSync(join(dir, 'node_modules', name, 'package.json'), JSON.stringify({ name, main: 'index.js' }));
+    writeFileSync(join(dir, 'node_modules', name, 'index.js'), code);
+  }
+}

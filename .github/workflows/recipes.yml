@@ -1,0 +1,22 @@
+# A change to a goal add recipe, or to what the recipes rely on, sets every recipe up for real
+# (see recipes/README.md).
+name: recipes
+
+on:
+  push:
+    branches: [main]
+    paths: ['recipes/**', 'test/recipes/**', 'src/add.js', 'src/css.js', 'src/eslint.js', 'src/vite.js', 'src/build.js', 'src/app.js']
+  pull_request:
+    paths: ['recipes/**', 'test/recipes/**', 'src/add.js', 'src/css.js', 'src/eslint.js', 'src/vite.js', 'src/build.js', 'src/app.js']
+
+jobs:
+  recipes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npx -y playwright install-deps chromium # the system libraries the playwright recipe's Chromium needs
+      - run: npm ci
+      - run: npm run test:recipes

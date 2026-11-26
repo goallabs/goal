@@ -186,7 +186,8 @@ function keptState(header) {
 /**
  * A request handler for node:http.
  * @param {{ method: string, path: string, handler: Function }[]} routes
- * @param {{ dev?: boolean, staticDirs?: string[], config?: { csp?: string | false, csrf?: boolean, bodyLimit?: number }, log?: (e: Error) => void }} [opts]
+ * @param {{ dev?: boolean, staticDirs?: string[], config?: { csp?: string | false, csrf?: boolean, bodyLimit?: number, onError?: (e: Error, request?: object) => void }, log?: (e: Error) => void }} [opts]
+ *   config.onError: called with each error a route or server function throws, and the request
  */
 export function createApp(routes, { dev = false, staticDirs = [], config = {}, log = console.error } = {}) {
   const sorted = table(routes);
@@ -206,6 +207,7 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
       res.end(req.method === 'HEAD' ? undefined : body);
     };
     const fail = (status, title) => send(status, HTML, errorPage(title));
+    let request;
 
     try {
       const url = new URL(req.url, 'http://localhost');
@@ -271,7 +273,7 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
           return j < 0 ? null : kept.splice(0, j + 1).pop().s;
         };
       }
-      const request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, files, json: body };
+      request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, files, json: body };
       const cookie = (name, value, opts) => setCookies.push(serializeCookie(name, value, opts));
       const out = await m.route.handler(request, { ctx, redirect, json, notFound, cookie });
       if (isHtml(out)) return send(200, HTML, page(out.s, [...ctx.ev], nonce, token, dev));
@@ -281,6 +283,11 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
     } catch (e) {
       if (e.status === 413) return fail(413, 'Too large');
       log(e);
+      // goal.config.js's onError hears of it too, say to report it to an error tracker. It runs after the
+      // answer is on its way, and an error of its own is logged.
+      Promise.resolve()
+        .then(() => config.onError?.(e, request))
+        .catch(log);
       return dev ? send(500, 'text/plain; charset=utf-8', String(e.stack)) : fail(500, 'Something went wrong');
     }
   };

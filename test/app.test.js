@@ -195,6 +195,24 @@ describe('routes', () => {
     expect(log).toEqual(['boom']);
   });
 
+  it("tells goal.config.js's onError of each error, with the request, and logs an error of its own", async () => {
+    const seen = [];
+    const u = await start({ config: { onError: (e, r) => seen.push([e.message, r.method, r.path]) } });
+    expect((await fetch(u + '/boom')).status).toBe(500);
+    await expect.poll(() => seen).toEqual([['boom', 'GET', '/boom']]);
+    const log = [];
+    const fails = await start({
+      config: {
+        onError: () => {
+          throw new Error('hook');
+        },
+      },
+      log: (e) => log.push(e.message),
+    });
+    expect((await fetch(fails + '/boom')).status).toBe(500); // the answer doesn't wait for it
+    await expect.poll(() => log).toEqual(['boom', 'hook']);
+  });
+
   it('pass the state a page kept to the render, and add the live updates to pages, in dev only', async () => {
     const dev = await start({ dev: true });
     const kept = (base, header) => fetch(base + '/kept', { headers: header === undefined ? {} : { 'x-goal-hmr': header } }).then((r) => r.json());

@@ -39,7 +39,8 @@ the shared helpers 1041 B, the keyed-list code 1077 B, and the loader 1064 B.
 - **Code**, a component's or the server's: the page asks the server for itself again, sending the
   state each component has now. The server renders the page with that state, and the new body takes
   the old one's place, keeping the scroll and the focus. The next event runs the new code, because a
-  dev chunk's URL names its build.
+  dev chunk's URL names its build. With PostCSS, the stylesheet loads again too, because Tailwind
+  CSS makes it from the code.
 - **A compile error:** it shows over the page until a build works again.
 
 A page reloads instead when the new code listens for an event type the page doesn't yet, or when the

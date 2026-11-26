@@ -67,13 +67,18 @@ goal dev <app>      # build, serve with error details, update open pages when a 
 goal build <app>    # compile into <app>/dist; prints the routes and each chunk's size
 goal start <app>    # serve a built app (--port 3000)
 goal check <app>    # check every file, types too, and list the errors
+goal add <tool>     # set up Tailwind CSS, Prisma, ESLint, Vitest and more (see Tools)
 ```
 
 ## What goes in an app
 
 - `.goal` files, anywhere in the folder: [routes](routes) and [components](components).
 - `.js` and `.json` files for server code the `.goal` files import.
-- A `public/` folder for CSS, images and fonts, served as they are.
-- An optional `goal.config.js` that changes the [security defaults](security).
+- A `public/` folder for CSS, images and fonts, served as they are. With a `postcss.config.js`, the
+  stylesheets go through PostCSS first (see [Tools](tools)).
+- An optional `goal.config.js` that changes the [security defaults](security) and can report
+  [errors](security#errors).
+- An optional `.env` file, read into `process.env` by `goal dev` and `goal start`. A variable that's
+  already set in the environment wins.
 
 Other folders are fine too: `goal build` skips `node_modules` and `dist`.

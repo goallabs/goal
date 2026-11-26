@@ -55,6 +55,8 @@ export function Counter({ start }) {
 - [How it works](how-it-works): parse, compile, render and resume, and debugging.
 - [Performance](performance): benchmark results, and how to measure your own.
 - [Vite](vite): working on an app inside Vite's dev server.
+- [Tools](tools): `goal add` sets up Tailwind CSS, Prisma, Drizzle, ESLint, Prettier, Vitest,
+  Playwright and Sentry.
 
 ## Status
 

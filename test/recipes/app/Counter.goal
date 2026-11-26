@@ -1,0 +1,4 @@
+export function Counter({ start }) {
+  var count = start;
+  return <button onclick={() => count++}>Clicked {count} times</button>;
+}

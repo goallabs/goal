@@ -3,8 +3,11 @@
 //   app/**/*.goal    ->  dist/server/**.js (components and routes) and one client chunk per
 //                        interactive component in dist/client/c/
 //   app/**/*.js      ->  dist/server/**.js as they are, for server code the .goal files import
-//   app/public/      ->  dist/public/, served as files
-//   app/goal.config.js   opt-outs of the security defaults (see src/app.js)
+//   app/public/      ->  dist/public/, served as files; stylesheets through PostCSS when the app
+//                        has a postcss.config.js (see css.js)
+//   app/goal.config.js   opt-outs of the security defaults and the error hook (see src/app.js),
+//                        copied with the server code
+//   app/.env         ->  process.env, for goal start and goal dev
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, cpSync, rmSync, watch } from 'node:fs';
 import { join, relative, dirname, resolve, sep, posix } from 'node:path';
@@ -17,6 +20,7 @@ import { exportsOf } from './types.js';
 import { desugar } from './syntax.js';
 import { loaderScript } from './server.js';
 import { createApp } from './app.js';
+import { postcss } from './css.js';
 
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -105,7 +109,8 @@ export function check(app) {
  * Compiles an app into dist/. Throws on a compile error or a duplicate route.
  * `dev` keeps chunks readable with source maps back to the .goal files; otherwise they are minified
  * and the source stays on the server. `publicPath` is where the site is served from.
- * @returns {Promise<{ version: string, chunks: { url: string, bytes: number, gzip: number }[], loader: number, routes: string[] }>}
+ * @returns {Promise<{ version: string, chunks: { url: string, bytes: number, gzip: number }[], loader: number, routes: string[], css: boolean }>}
+ *   css: whether the stylesheets went through PostCSS
  */
 export async function build(app, { out = join(app, 'dist'), dev = false, publicPath = '/' } = {}) {
   const version = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -118,7 +123,6 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
   const all = files(app);
   const link = linker(app, all);
   for (const rel of all) {
-    if (rel === 'goal.config.js') continue;
     if (!rel.endsWith('.goal')) {
       if (/\.(m?js|json)$/.test(rel)) write(join(out, 'server', rel), readFileSync(join(app, rel)));
       continue;
@@ -179,8 +183,15 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
     routeFiles.map((f, i) => `import { _$routes as r${i} } from './${f}.js?v=${version}';\n`).join('') +
       `export default [${routeFiles.map((_, i) => `...r${i}`).join(', ')}];\n`,
   );
-  if (existsSync(join(app, 'public'))) cpSync(join(app, 'public'), join(out, 'public'), { recursive: true });
-  return { version, chunks, loader: gzipSync(loaderScript()).length, routes: routes.map((r) => r.label) };
+  // The server code is ES modules, whatever the app's package.json says.
+  write(join(out, 'server', 'package.json'), '{ "type": "module" }\n');
+  const css = await postcss(app, dev);
+  if (existsSync(join(app, 'public'))) {
+    cpSync(join(app, 'public'), join(out, 'public'), { recursive: true });
+    for (const f of css ? readdirSync(join(app, 'public'), { recursive: true }).filter((f) => f.endsWith('.css')) : [])
+      writeFileSync(join(out, 'public', f), await css(readFileSync(join(app, 'public', f), 'utf8'), join(app, 'public', f), join(out, 'public', f)));
+  }
+  return { version, chunks, loader: gzipSync(loaderScript()).length, routes: routes.map((r) => r.label), css: !!css };
 }
 
 /**
@@ -188,7 +199,8 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
  * of pages listening at /_goal/hmr for live updates (goal dev).
  */
 export async function serve(app, { out = join(app, 'dist'), port = 3000, dev = false, version = () => '', log = console.error, hmr } = {}) {
-  const configFile = join(app, 'goal.config.js');
+  if (existsSync(join(app, '.env'))) process.loadEnvFile(join(app, '.env')); // what the environment has already wins
+  const configFile = join(out, 'server', 'goal.config.js');
   const config = existsSync(configFile) ? (await import(pathToFileURL(configFile).href)).default : {};
   const routesFile = pathToFileURL(join(out, 'server', '_routes.js')).href;
   const server = createServer(async (req, res) => {
@@ -221,7 +233,9 @@ export async function dev(app, { port = 3000, log = console.log } = {}) {
       const r = await build(app, { dev: true });
       version = r.version;
       log(`built: ${r.routes.length} route(s), ${r.chunks.length} chunk(s)`);
-      tell({ type: changed.length && changed.every((f) => f.endsWith('.css')) ? 'css' : 'update', version });
+      const type = changed.length && changed.every((f) => f.endsWith('.css')) ? 'css' : 'update';
+      tell({ type, version });
+      if (type === 'update' && r.css) tell({ type: 'css', version }); // PostCSS may make new CSS from the code, as Tailwind does
     } catch (e) {
       log(e.message);
       tell({ type: 'error', message: e.message });
