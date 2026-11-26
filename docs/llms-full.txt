@@ -667,6 +667,11 @@ only while rendering on the server never reach the page.
 
 ## The rest
 
+- A client may send 120 requests that change things (POST, PUT, PATCH, DELETE, server functions
+  included) a minute; more get 429 with `Retry-After` (*config* `rateLimit: { max, window }` in
+  milliseconds, or `false`). Reading is never limited. Behind a proxy or load balancer every request
+  seems to come from it, so set *config* `trustProxy: true` (or the number of proxies) to tell
+  clients apart by `X-Forwarded-For`.
 - Request bodies are limited to 1 MB (*config* `bodyLimit`).
 - `redirect()` stays on this site unless told otherwise.
 - Cookies are `HttpOnly`, `Secure` and `SameSite=Lax` unless a route says otherwise.

@@ -16,7 +16,7 @@ What to know before writing goal.js code:
 - Lists are `items.map((x) => <li key={x.id}>...</li>)`. With `key`, the list is patched by key.
 - Components can render components, pass `children`, and pass function props that run as the parent's handlers.
 - One compile makes a file's server code and browser code, from the same templates and with the same escaping and URL checks, so the browser's renders always agree with the server's HTML. Routes and server functions never reach the browser.
-- Security is on by default: every value is escaped, `<script>`, `<style>` and `srcdoc` in markup are compile errors, `javascript:` and `data:` URLs are blocked, every page has a strict Content-Security-Policy with a nonce, and forms and server functions are protected from CSRF. `goal.config.js` turns each one off explicitly.
+- Security is on by default: every value is escaped, `<script>`, `<style>` and `srcdoc` in markup are compile errors, `javascript:` and `data:` URLs are blocked, every page has a strict Content-Security-Policy with a nonce, forms and server functions are protected from CSRF, and each client may send 120 requests that change things a minute (then 429; `rateLimit`, and `trustProxy: true` behind a proxy). `goal.config.js` turns each one off explicitly.
 - The CLI is `goal dev`, `goal build`, `goal start`, `goal check` and `goal add <tool>`. Static files go in `public/`, and `.env` is read into `process.env`.
 
 ## Docs

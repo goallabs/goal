@@ -150,6 +150,9 @@ describe('route groups: requests', () => {
     const crumb = await fetch(url + '/api/crumb', { headers: auth });
     expect([crumb.status, await crumb.json()]).toEqual([500, { error: 'Something went wrong' }]);
     expect((await fetch(url + '/admin', { method: 'DELETE' })).headers.get('content-type')).toBe('text/html; charset=utf-8');
+    const limited = await start({ rateLimit: { max: 0 } });
+    const many = await fetch(limited + '/api/notes', { method: 'POST', headers: auth });
+    expect([many.status, await many.json()]).toEqual([429, { error: 'Too many requests' }]);
   });
 
   it('keep api answers from other sites unless goal.config.js cors lets them', async () => {

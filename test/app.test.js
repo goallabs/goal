@@ -416,6 +416,63 @@ describe('answers of any kind', () => {
   });
 });
 
+describe('the rate limit', () => {
+  const send = (base, headers = {}) => post('/items', 'a=1', headers, base).then((r) => r.status);
+
+  it('lets a client send so many changes in a window, then answers 429 with Retry-After', async () => {
+    const base = await start({ config: { rateLimit: { max: 2, window: 30_000 } } });
+    expect([await send(base), await send(base)]).toEqual([403, 403]); // counted, whatever the answer
+    const over = await post('/items', 'a=1', {}, base);
+    expect([over.status, over.headers.get('retry-after')]).toEqual([429, '30']);
+    expect(await over.text()).toContain('Too many requests');
+    expect((await fetch(base + '/')).status).toBe(200); // reading is never limited
+  });
+
+  it('tells clients behind proxies apart only when told to trust them', async () => {
+    const plain = await start({ config: { rateLimit: { max: 1 } } });
+    expect([await send(plain, { 'x-forwarded-for': '1.1.1.1' }), await send(plain, { 'x-forwarded-for': '2.2.2.2' })]).toEqual([403, 429]);
+    const one = await start({ config: { rateLimit: { max: 1 }, trustProxy: true } });
+    expect([await send(one, { 'x-forwarded-for': '9.9.9.9, 1.1.1.1' }), await send(one, { 'x-forwarded-for': '9.9.9.9, 2.2.2.2' })]).toEqual([403, 403]);
+    expect(await send(one, { 'x-forwarded-for': '1.1.1.1' })).toBe(429);
+    const two = await start({ config: { rateLimit: { max: 1 }, trustProxy: 2 } });
+    expect([await send(two, { 'x-forwarded-for': '9.9.9.9, 1.1.1.1' }), await send(two, { 'x-forwarded-for': '9.9.9.9, 2.2.2.2' })]).toEqual([403, 429]);
+    expect(await send(two, {})).toBe(403); // nothing forwarded: the connection's address
+  });
+
+  it('forgets clients whose window is over, and only those', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+    try {
+      const base = await start({ config: { rateLimit: { max: 1, window: 60_000 }, trustProxy: true } });
+      const as = (ip) => send(base, { 'x-forwarded-for': ip });
+      await as('1.1.1.1');
+      now.mockReturnValue(2_030_000);
+      await as('2.2.2.2');
+      now.mockReturnValue(2_060_000); // the first client's window is over, the second's isn't
+      expect([await as('1.1.1.1'), await as('2.2.2.2')]).toEqual([403, 429]);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('can be turned off', async () => {
+    const base = await start({ config: { rateLimit: false } });
+    for (let i = 0; i < 125; i++) expect(await send(base)).toBe(403);
+  });
+
+  it('allows 120 a minute by default, and starts again each window', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      const base = await start();
+      for (let i = 0; i < 120; i++) await send(base);
+      expect(await send(base)).toBe(429);
+      now.mockReturnValue(1_060_000);
+      expect(await send(base)).toBe(403);
+    } finally {
+      now.mockRestore();
+    }
+  });
+});
+
 describe('requests that change things', () => {
   it('need the CSRF token, from the form or a header', async () => {
     expect((await post('/items', 'a=1')).status).toBe(403);

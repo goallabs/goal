@@ -9,6 +9,8 @@
 //     it needs the CSRF token, which forms get automatically (`csrf: false` to turn it off);
 //   - except in a `group /path api`, whose routes neither read nor set cookies, so there's nothing
 //     for another site to misuse; other sites read their answers only when `cors` allows;
+//   - a client may send 120 requests that change things a minute (`rateLimit`; `trustProxy` behind
+//     proxies), then waits;
 //   - bodies are limited (`bodyLimit`, 1 MB), redirects stay on this site unless asked,
 //     cookies are HttpOnly, Secure and SameSite=Lax, and errors show no details outside `goal dev`.
 
@@ -210,6 +212,32 @@ function match(routes, method, segs) {
   return allow.size ? { allow: [...allow], api } : null;
 }
 
+/**
+ * The rate limit on requests that change things: at most `max` (120) from one client in each `window`
+ * (a minute). The client is the connection's address or, behind proxies (`trustProxy`: true for one,
+ * or how many), the one they forwarded. Returns a function that counts a request and says how many
+ * seconds its client must wait, or 0.
+ */
+function limiter(opts, trustProxy) {
+  if (opts === false) return () => 0;
+  const { max = 120, window = 60_000 } = opts ?? {};
+  const hops = trustProxy === true ? 1 : Number(trustProxy) || 0;
+  const seen = new Map(); // client -> { n, end }
+  let sweep = 0;
+  return (req) => {
+    const now = Date.now();
+    if (now >= sweep) {
+      for (const [k, v] of seen) if (v.end <= now) seen.delete(k);
+      sweep = now + window;
+    }
+    const forwarded = hops && String(req.headers['x-forwarded-for'] ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    const client = (hops && forwarded.at(-hops)) || req.socket.remoteAddress;
+    let c = seen.get(client);
+    if (!c || c.end <= now) seen.set(client, (c = { n: 0, end: now + window }));
+    return ++c.n > max ? Math.ceil((c.end - now) / 1000) : 0;
+  };
+}
+
 /** The Access-Control-Allow-Origin for a request's Origin: goal.config.js's cors is '*' or a list of origins. */
 function allowed(cors, origin) {
   if (cors === '*') return '*';
@@ -229,13 +257,14 @@ function keptState(header) {
 /**
  * A request handler for node:http.
  * @param {{ method: string, path: string, handler: Function }[]} routes
- * @param {{ dev?: boolean, staticDirs?: string[], config?: { csp?: string | false, csrf?: boolean, bodyLimit?: number, cors?: string | string[], onError?: (e: Error, request?: object) => void }, log?: (e: Error) => void, styles?: string }} [opts]
+ * @param {{ dev?: boolean, staticDirs?: string[], config?: { csp?: string | false, csrf?: boolean, bodyLimit?: number, cors?: string | string[], rateLimit?: { max?: number, window?: number } | false, trustProxy?: boolean | number, onError?: (e: Error, request?: object) => void }, log?: (e: Error) => void, styles?: string }} [opts]
  *   config.onError: called with each error a route or server function throws, and the request;
  *   styles: the URL of the app's stylesheet (the style blocks), which each page links
  */
 export function createApp(routes, { dev = false, staticDirs = [], config = {}, log = console.error, styles } = {}) {
   const sorted = table(routes);
   const limit = config.bodyLimit ?? 1_000_000;
+  const tooMany = limiter(config.rateLimit, config.trustProxy);
   return async (req, res) => {
     const nonce = randomBytes(16).toString('base64');
     const headers = securityHeaders(nonce, { csp: config.csp, tls: !!req.socket.encrypted });
@@ -312,6 +341,8 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
           });
         }
       }
+      const wait = !SAFE.has(req.method) && tooMany(req); // a client sending too many changes waits
+      if (wait) return send(429, ...(api ? [JSON_TYPE, JSON.stringify({ error: 'Too many requests' })] : [HTML, errorPage('Too many requests')]), { 'retry-after': String(wait) });
       let form = {};
       const files = {};
       let data;
