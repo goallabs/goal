@@ -69,6 +69,67 @@ describe('live updates in goal dev', () => {
     expect(document.activeElement.id).toBe('t');
   });
 
+  it('keep the focus on an element without an id, by where it is in its component, and the caret', async () => {
+    const page = (top, b) =>
+      `${top}<div m-c="/c/A.A.js" m-i="0" m-s='{}'><p>a</p></div><div m-c="/c/B.B.js" m-i="1" m-s='{}'><button>-</button><span><input value="hello"></span>${b}</div>`;
+    const { send, next } = setup(page('', '<button>+</button>'));
+    document.querySelectorAll('button')[1].focus();
+    // the route's markup above the components changed: the button is still the second component's
+    next.html = `<body>${page('<h1>new</h1>', '<button>+</button>')}</body>`;
+    send({ type: 'update', version: 'v2' });
+    await vi.waitFor(() => expect(document.querySelector('h1')).not.toBe(null));
+    expect(document.activeElement).toBe(document.querySelectorAll('button')[1]);
+
+    const input = document.querySelector('input');
+    input.focus();
+    input.setSelectionRange(1, 3, 'backward');
+    next.html = `<body>${page('<h2>newer</h2>', '')}</body>`;
+    send({ type: 'update', version: 'v3' });
+    await vi.waitFor(() => expect(document.querySelector('h2')).not.toBe(null));
+    const now = document.querySelector('input');
+    expect(now).not.toBe(input);
+    expect(document.activeElement).toBe(now);
+    expect([now.selectionStart, now.selectionEnd, now.selectionDirection]).toEqual([1, 3, 'backward']);
+  });
+
+  it('keep the focus outside components, and on an input whose type changed, without its caret', async () => {
+    const { send, next } = setup('<nav><a href="/">one</a><a href="/b">two</a></nav><form><input value="abc"></form>');
+    document.querySelectorAll('a')[1].focus();
+    next.html = '<body><nav><a href="/">one</a><a href="/b">2</a></nav><form><input value="abc"></form></body>';
+    send({ type: 'update', version: 'v2' });
+    await vi.waitFor(() => expect(document.querySelectorAll('a')[1].textContent).toBe('2'));
+    expect(document.activeElement).toBe(document.querySelectorAll('a')[1]);
+
+    document.querySelector('input').focus();
+    next.html = '<body><nav></nav><form><input type="checkbox"></form></body>';
+    send({ type: 'update', version: 'v3' });
+    await vi.waitFor(() => expect(document.querySelector('input').type).toBe('checkbox'));
+    expect(document.activeElement).toBe(document.querySelector('input'));
+  });
+
+  it("leave the focus when the code changed what's there, or took it away", async () => {
+    const { send, next } = setup(`<div m-c="/c/A.A.js" m-i="0" m-s='{}'><section><button>b</button></section></div>`);
+    document.querySelector('button').focus();
+    next.html = `<body><div m-c="/c/A.A.js" m-i="0" m-s='{}'><section><a href="/">b</a></section></div></body>`; // an <a> there now
+    send({ type: 'update', version: 'v2' });
+    await vi.waitFor(() => expect(document.querySelector('a')).not.toBe(null));
+    expect(document.activeElement).toBe(document.body);
+
+    document.body.innerHTML = `<div m-c="/c/A.A.js" m-i="0" m-s='{}'><section><button>b</button></section></div>`;
+    document.querySelector('button').focus();
+    next.html = `<body><div m-c="/c/A.A.js" m-i="0" m-s='{}'></div></body>`; // the way down to it is gone
+    send({ type: 'update', version: 'v3' });
+    await vi.waitFor(() => expect(document.querySelector('section')).toBe(null));
+    expect(document.activeElement).toBe(document.body);
+
+    document.body.innerHTML = `<div m-c="/c/A.A.js" m-i="0" m-s='{}'><button>b</button></div>`;
+    document.querySelector('button').focus();
+    next.html = '<body><p>no components</p></body>'; // the component is gone
+    send({ type: 'update', version: 'v4' });
+    await vi.waitFor(() => expect(document.querySelector('p')).not.toBe(null));
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it('swap a page with no focus, or whose focused element is gone, and one with no event list', async () => {
     const { send, next } = setup('<button id="b">b</button>');
     next.html = '<body><p id="one">one</p></body>';

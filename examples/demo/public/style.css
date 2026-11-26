@@ -3,3 +3,10 @@ nav a{margin-right:.75rem}
 .card{border:1px solid #ccc;border-radius:8px;padding:.75rem 1rem;margin:.75rem 0}
 .odd strong{color:#b45309}
 .even strong{color:#1d4ed8}
+.example h2{font-size:1.1rem;margin:1.75rem 0 .25rem}
+.example>p{margin:.25rem 0;color:#555}
+.stars{margin:.25rem 0}
+.stars button{font-size:1.4rem;line-height:1;background:none;border:0;padding:0 .1rem;cursor:pointer;color:#b45309}
+.filters button[aria-pressed=true]{font-weight:bold}
+.bought label{text-decoration:line-through;color:#888}
+input[type=range]{width:100%}

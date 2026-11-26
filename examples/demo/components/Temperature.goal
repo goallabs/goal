@@ -1,0 +1,18 @@
+#strict
+// A #strict file is type-checked: goal check, goal build and the editor say where a value isn't of
+// its type. Computed values (let and const) are worked out again from the state on each run.
+
+export function Temperature() {
+  var celsius: number = 20;
+  const fahrenheit = Math.round((celsius * 9) / 5 + 32);
+  let feel = 'mild';
+  if (celsius < 10) feel = 'cold';
+  else if (celsius > 25) feel = 'hot';
+
+  return (
+    <div class="card">
+      <input type="range" min="-20" max="45" value={celsius} oninput={(e) => (celsius = Number(e.target.value))} aria-label="Celsius" />
+      <p>{celsius} °C is {fahrenheit} °F: {feel}.</p>
+    </div>
+  );
+}

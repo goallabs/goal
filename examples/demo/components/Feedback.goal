@@ -1,0 +1,27 @@
+// A component inside a component. Feedback keeps the state, and Rating gets it as a prop (value):
+// when it changes, Rating is rendered again in the browser. Rating tells its parent with a function
+// prop (onrate), which runs as one of Feedback's handlers.
+
+export function Feedback() {
+  var stars = 0;
+
+  return (
+    <div class="card">
+      <Rating value={stars} onrate={(n) => (stars = n)} />
+      <p>{if (stars === 0) 'Not rated yet.' else `You gave it ${stars} of 5.`}</p>
+      <button type="button" onclick={() => (stars = 0)} disabled={stars === 0}>Reset</button>
+    </div>
+  );
+}
+
+export function Rating({ value, onrate }) {
+  return (
+    <p class="stars">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button type="button" aria-label={`${n} of 5`} aria-pressed={n <= value ? 'true' : 'false'} onclick={() => onrate(n)}>
+          {n <= value ? '★' : '☆'}
+        </button>
+      ))}
+    </p>
+  );
+}

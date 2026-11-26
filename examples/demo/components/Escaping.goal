@@ -1,0 +1,22 @@
+// Secure by default: a value is always text, so markup typed into the page shows as written and
+// never runs, and a link to a javascript: or data: URL is blocked.
+
+export function Escaping() {
+  var text = '<img src=x onerror="alert(1)"> <b>bold?</b>';
+  var url = 'javascript:alert(1)';
+
+  return (
+    <div class="card">
+      <label>
+        Text <input value={text} oninput={(e) => (text = e.target.value)} />
+      </label>
+      <p>As text: {text}</p>
+      <label>
+        Link <input value={url} oninput={(e) => (url = e.target.value)} />
+      </label>
+      <p>
+        <a href={url}>Follow the link</a>, or type https://example.com
+      </p>
+    </div>
+  );
+}

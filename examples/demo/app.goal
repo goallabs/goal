@@ -2,6 +2,11 @@ import { Counter } from './components/Counter.goal';
 import { Toggle } from './components/Toggle.goal';
 import { Todo } from './components/Todo.goal';
 import { Board, listNotes } from './components/Board.goal';
+import { Card } from './components/Card.goal';
+import { Feedback } from './components/Feedback.goal';
+import { Groceries } from './components/Groceries.goal';
+import { Temperature } from './components/Temperature.goal';
+import { Escaping } from './components/Escaping.goal';
 
 const notes = [];
 
@@ -15,7 +20,7 @@ function layout(title, body) {
         <link rel="stylesheet" href="/style.css" />
       </head>
       <body>
-        <nav><a href="/">Home</a> <a href="/notes">Notes</a> <a href="/board">Board</a> <a href="/users/ada">Users</a> <a href="/about">About</a></nav>
+        <nav><a href="/">Home</a> <a href="/notes">Notes</a> <a href="/board">Board</a> <a href="/examples">Examples</a> <a href="/users/ada">Users</a> <a href="/about">About</a></nav>
         {body}
       </body>
     </html>
@@ -71,6 +76,31 @@ route GET /board {
       <h1>Board</h1>
       <p>Saved on the server through server functions: no async, no fetch in the component.</p>
       <Board initial={listNotes()} />
+    </main>,
+  );
+}
+
+route GET /examples {
+  return layout(
+    'Examples',
+    <main>
+      <h1>Examples</h1>
+      <Card title="Components inside components">
+        <p>Feedback keeps the rating. Rating shows it, and calls Feedback back through a function prop.</p>
+        <Feedback />
+      </Card>
+      <Card title="A keyed list">
+        <p>Rows are found by their key when the list changes. Filter, tick and remove items.</p>
+        <Groceries />
+      </Card>
+      <Card title="Computed values, type-checked">
+        <p>The Fahrenheit value and the label are worked out from the state. The file is #strict.</p>
+        <Temperature />
+      </Card>
+      <Card title="Secure by default">
+        <p>What you type is always text, and a javascript: link is blocked.</p>
+        <Escaping />
+      </Card>
     </main>,
   );
 }

@@ -27,8 +27,8 @@ nav_order: 8
 
 `goal build` prints the gzipped size of each client chunk and of the loader. Helpers that several
 components share go in a chunk of their own, and the keyed-list code in another, loaded only by
-components with a keyed list. In the demo app, the component chunks are 270 to 560 B,
-the shared helpers 1041 B, the keyed-list code 1077 B, and the loader 1064 B.
+components with a keyed list. In the demo app, the component chunks are 220 to 740 B,
+the shared helpers 1697 B, the keyed-list code 1078 B, and the loader 1064 B.
 
 ## Live updates in goal dev
 
@@ -38,7 +38,9 @@ the shared helpers 1041 B, the keyed-list code 1077 B, and the loader 1064 B.
 - **A stylesheet:** the page loads it again in place.
 - **Code**, a component's or the server's: the page asks the server for itself again, sending the
   state each component has now. The server renders the page with that state, and the new body takes
-  the old one's place, keeping the scroll and the focus. The next event runs the new code, because a
+  the old one's place, keeping the scroll. The focused element keeps the focus, and an input its
+  caret and selection: it's found by its place in its component, so it needs no `id`, unless the
+  change put another kind of element there. The next event runs the new code, because a
   dev chunk's URL names its build. With PostCSS, the stylesheet loads again too, because Tailwind
   CSS makes it from the code.
 - **A compile error:** it shows over the page until a build works again.

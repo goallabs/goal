@@ -1,0 +1,49 @@
+// A keyed list: when the list changes, each row is found by its key (x.id), so a row that stays
+// keeps its nodes, and only what changed in it is written.
+
+export function Groceries() {
+  var items = [
+    { id: 1, name: 'Bread', bought: false },
+    { id: 2, name: 'Milk', bought: true },
+    { id: 3, name: 'Apples', bought: false },
+  ];
+  var show = 'all';
+  var text = '';
+  const shown = items.filter((x) => show === 'all' || x.bought === (show === 'bought'));
+  const left = items.filter((x) => !x.bought).length;
+  const nextId = items.reduce((max, x) => Math.max(max, x.id), 0) + 1;
+
+  function add() {
+    const name = text.trim();
+    if (!name) return;
+    items = [...items, { id: nextId, name, bought: false }];
+    text = '';
+  }
+
+  function toggle(id) {
+    items = items.map((x) => (x.id === id ? { ...x, bought: !x.bought } : x));
+  }
+
+  return (
+    <form class="card" onsubmit={add}>
+      <input value={text} oninput={(e) => (text = e.target.value)} placeholder="Add an item" />
+      <button>Add</button>
+      <p class="filters">
+        <button type="button" aria-pressed={show === 'all' ? 'true' : 'false'} onclick={() => (show = 'all')}>All</button>
+        <button type="button" aria-pressed={show === 'left' ? 'true' : 'false'} onclick={() => (show = 'left')}>To buy</button>
+        <button type="button" aria-pressed={show === 'bought' ? 'true' : 'false'} onclick={() => (show = 'bought')}>Bought</button>
+      </p>
+      <ul>
+        {shown.map((x) => (
+          <li key={x.id} class={x.bought ? 'bought' : ''}>
+            <label>
+              <input type="checkbox" checked={x.bought} onchange={() => toggle(x.id)} /> {x.name}
+            </label>
+            <button type="button" onclick={() => (items = items.filter((y) => y.id !== x.id))}>remove</button>
+          </li>
+        ))}
+      </ul>
+      <p>{if (left === 0) 'Everything is bought.' else if (left === 1) 'One thing to buy.' else `${left} things to buy.`}</p>
+    </form>
+  );
+}
