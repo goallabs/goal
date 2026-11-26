@@ -179,7 +179,7 @@ describe('build', () => {
   it('keeps dev chunks readable with source maps, under a public path', async () => {
     const dir = app({ 'ui/C.goal': COUNTER });
     const r = await build(dir, { dev: true, publicPath: '/app/' });
-    expect(r.chunks[0].url).toBe('/app/c/ui/C.C.js');
+    expect(r.chunks[0]).toEqual({ url: '/app/c/ui/C.C.js', bytes: expect.any(Number) }); // dev reports no gzipped sizes
     const code = readFileSync(join(dir, 'dist/client/c/ui/C.C.js'), 'utf8');
     expect(code).toContain('function C(_$s) {\n  var n = _$s.n;');
     const map = JSON.parse(Buffer.from(code.split('base64,')[1], 'base64').toString());
@@ -197,6 +197,27 @@ describe('build', () => {
     const r = await build(dir);
     expect(readFileSync(join(dir, 'dist/client/c/ui/A.A.js'), 'utf8')).toContain('"/_m/lib/store/save"');
     expect(r.routes).toEqual(['server function save  POST /_m/lib/store/save', 'server function hidden  POST /_m/lib/store/hidden', 'GET /b']);
+  });
+
+  it('in dev, compiles again only the files that changed or import one that did, each build under its own name', async () => {
+    const dir = app({
+      'lib/a.goal': 'export const A = 1;',
+      'lib/b.goal': "import { A } from './a.goal';\nexport const B = A;",
+      'ui/C.goal': `import { B } from '../lib/b.goal';\nimport { C as Self } from './C.goal';\nimport { x } from './none.goal';\n${COUNTER}`,
+      'ui/D.goal': COUNTER.replaceAll('C', 'D'),
+    });
+    const cache = { compiled: new Map(), exports: new Map() };
+    const first = await build(dir, { dev: true, cache });
+    const kept = new Map([...cache.compiled].map(([f, x]) => [f, x.r]));
+    const again = await build(dir, { dev: true, cache });
+    expect([...cache.compiled].every(([f, x]) => x.r === kept.get(f))).toBe(true);
+    // What was kept takes the new build's name
+    expect(readFileSync(join(dir, 'dist/server/ui/C.js'), 'utf8')).toContain(`m-c="/c/ui/C.C.js?v=${again.version}"`);
+    expect(readFileSync(join(dir, 'dist/client/c/ui/C.C.js'), 'utf8')).not.toContain(first.version);
+    writeFileSync(join(dir, 'lib/a.goal'), 'export const A = 2;');
+    await build(dir, { dev: true, cache });
+    const changed = [...cache.compiled].filter(([f, x]) => x.r !== kept.get(f)).map(([f]) => f);
+    expect(changed.sort()).toEqual(['lib/a.goal', 'lib/b.goal', 'ui/C.goal']);
   });
 
   it('refuses the same route twice', async () => {
@@ -278,6 +299,21 @@ describe('dev', () => {
     writeFileSync(join(dir, 'app.goal'), 'route GET / { var a = 1; return <p/>; }');
     await expect.poll(() => log.at(-1), { timeout: 5000 }).toContain('state (var) belongs in a component');
   });
+
+  it('builds once at a time, and the changes made during a build go in the next', async () => {
+    // A file slow enough to compile that the next change comes in while it builds
+    const big = (text) => Array.from({ length: 300 }, (_, i) => `export function C${i}() { var n = ${i}; return <b onclick={() => n++}>{n}</b>; }`).join('\n') + `\nroute GET / { return <p>${text}</p>; }`;
+    const dir = app({ 'app.goal': big('start') });
+    const log = [];
+    const url = listen(await dev(dir, { port: 0, log: (m) => log.push(m) }));
+    for (let i = 0; i < 12; i++) {
+      writeFileSync(join(dir, 'app.goal'), big(`edit ${i}`));
+      await new Promise((ok) => setTimeout(ok, 30));
+    }
+    await expect.poll(async () => (await fetch(url)).text(), { timeout: 10000 }).toContain('<p>edit 11</p>');
+    expect(log.every((m) => m.startsWith('built:'))).toBe(true);
+    expect(log.length).toBeLessThan(13); // changes that came in together, built together
+  }, 20000);
 
   it('logs to the console by default', async () => {
     const dir = app({ 'app.goal': 'route GET / { return <p/>; }' });

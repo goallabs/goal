@@ -28,6 +28,16 @@ const SRC = dirname(fileURLToPath(import.meta.url));
 const RT = pathToFileURL(join(SRC, 'rt.js')).href;
 const KEYED = 'goal:keyed'; // the keyed list patcher, its own file: c/_/keyed.js
 const SKIP = new Set(['dist', 'node_modules', 'public']);
+const VERSION = '__goal_ver__'; // a dev build's name, in what's compiled: as long as the names build() gives
+
+/** The .goal files a .goal file imports, and those they import, and so on. */
+function goalImports(rel, sources, found = new Set()) {
+  for (const [, spec] of sources.get(rel).matchAll(/(?:from|import)\s*["'](\.{1,2}\/[^"']+\.goal)["']/g)) {
+    const f = posix.join(posix.dirname(rel), spec);
+    if (sources.has(f) && !found.has(f)) goalImports(f, sources, found.add(f));
+  }
+  return found;
+}
 
 function files(dir, root = dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
@@ -75,10 +85,13 @@ const entriesPlugin = (entries, renders) => {
  * What the .goal files tell each other: the server functions each exports, so files can import them,
  * and what a #strict file that imports one gets from it (see types.js), each read once.
  */
-function linker(app, all) {
+function linker(app, all, sources = new Map(), seen = new Map()) {
   const exported = new Map();
-  for (const rel of all.filter((f) => f.endsWith('.goal')))
-    exported.set(rel, desugar(readFileSync(join(app, rel), 'utf8'), rel).serverFns.filter((f) => f.exported).map((f) => f.name));
+  for (const rel of all.filter((f) => f.endsWith('.goal'))) {
+    const src = sources.get(rel) ?? readFileSync(join(app, rel), 'utf8');
+    if (seen.get(rel)?.src !== src) seen.set(rel, { src, names: desugar(src, rel).serverFns.filter((f) => f.exported).map((f) => f.name) }); // goal dev reads each file again only when it changes
+    exported.set(rel, seen.get(rel).names);
+  }
   const typed = new Map();
   const to = (rel, spec) => posix.join(posix.dirname(rel), spec);
   return {
@@ -114,8 +127,8 @@ export function check(app) {
  *   styles: { url: string, bytes: number, gzip: number } | null }>}
  *   css: whether the stylesheets went through PostCSS; styles: the app's stylesheet, the files' style blocks
  */
-export async function build(app, { out = join(app, 'dist'), dev = false, publicPath = '/' } = {}) {
-  const version = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+export async function build(app, { out = join(app, 'dist'), dev = false, publicPath = '/', cache } = {}) {
+  const version = (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)).padEnd(VERSION.length, '0');
   const chunks = [];
   const routes = [];
   const routeFiles = [];
@@ -124,16 +137,26 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
   const sheets = new Map(); // the style blocks, scoped, by .goal file
   rmSync(out, { recursive: true, force: true });
   const all = files(app);
-  const link = linker(app, all);
+  const sources = new Map(all.filter((f) => f.endsWith('.goal')).map((rel) => [rel, readFileSync(join(app, rel), 'utf8')]));
+  const link = linker(app, all, sources, cache?.exports);
   for (const rel of all) {
     if (!rel.endsWith('.goal')) {
       if (/\.(m?js|json)$/.test(rel)) write(join(out, 'server', rel), readFileSync(join(app, rel)));
       continue;
     }
     const base = rel.slice(0, -5);
-    // In dev a chunk's URL names the build, so a page updated live loads the new code.
-    const chunk = (n) => `${publicPath}c/${base}.${n}.js${dev ? `?v=${version}` : ''}`;
-    const r = compile(readFileSync(join(app, rel), 'utf8'), { file: rel, base, rt: RT, keyed: KEYED, chunk, dev, serverFunctions: link.serverFunctions(rel), typesOf: link.typesOf(rel) });
+    // In dev a chunk's URL names the build, so a page updated live loads the new code. It's compiled
+    // with a stand-in of the same length (so source maps stay right), which takes the build's name
+    // after: goal dev keeps what each file compiled to, and compiles again only the files that changed
+    // or that import, one way or another, a .goal file that did.
+    const chunk = (n) => `${publicPath}c/${base}.${n}.js${dev ? `?v=${VERSION}` : ''}`;
+    const key = [sources.get(rel), ...[...goalImports(rel, sources)].sort().map((f) => `${f}\0${sources.get(f)}`)].join('\0');
+    let r = cache?.compiled.get(rel)?.key === key ? cache.compiled.get(rel).r : null;
+    if (!r) {
+      r = compile(sources.get(rel), { file: rel, base, rt: RT, keyed: KEYED, chunk, dev, serverFunctions: link.serverFunctions(rel), typesOf: link.typesOf(rel) });
+      cache?.compiled.set(rel, { key, r });
+    }
+    if (dev) r = { ...r, server: r.server.replaceAll(VERSION, version), render: r.render.replaceAll(VERSION, version), clients: r.clients.map((c) => ({ ...c, code: c.code.replaceAll(VERSION, version) })) };
     const server = r.server.replace(/((?:from|import)\s*["'])(\.{1,2}\/[^"']+?)(\.goal|\.m?js)(["'])/g, (_, a, p, ext, b) => `${a}${p}${ext === '.goal' ? '.js' : ext}?v=${version}${b}`);
     write(join(out, 'server', base + '.js'), server);
     if (r.routes.length || r.serverFunctions.length) routeFiles.push(base);
@@ -175,11 +198,11 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
       const to = posix.relative(from, '_/keyed.js');
       return f.text.replaceAll(`"${KEYED}"`, JSON.stringify(to.startsWith('.') ? to : './' + to));
     };
-    const files = (await bundle(true)).map((f) => ({ path: f.path, text: link(f) })); // the sizes reported are what production ships
-    for (const f of dev ? (await bundle(false)).map((f) => ({ path: f.path, text: link(f) })) : files) write(f.path, f.text);
-    for (const f of files) {
+    // goal dev writes readable chunks and reports no sizes; goal build reports what production ships
+    for (const f of (await bundle(!dev)).map((f) => ({ path: f.path, text: link(f) }))) {
+      write(f.path, f.text);
       const rel = relative(resolve(out, 'client'), f.path).split(sep).join('/');
-      chunks.push({ url: publicPath + rel, bytes: Buffer.byteLength(f.text), gzip: gzipSync(f.text).length });
+      chunks.push({ url: publicPath + rel, bytes: Buffer.byteLength(f.text), ...(!dev && { gzip: gzipSync(f.text).length }) });
     }
   }
   // The files' style blocks, in one stylesheet for the whole app: through PostCSS when the app has a
@@ -215,9 +238,10 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
 
 /**
  * Serves a built app. `dev` shows error details; `version` names the build to load; `hmr`, the set
- * of pages listening at /_goal/hmr for live updates (goal dev).
+ * of pages listening at /_goal/hmr for live updates, and `ready`, the build running now, which a
+ * request waits for, since a build starts by emptying dist/ (goal dev).
  */
-export async function serve(app, { out = join(app, 'dist'), port = 5648, dev = false, version = () => '', log = console.error, hmr } = {}) {
+export async function serve(app, { out = join(app, 'dist'), port = 5648, dev = false, version = () => '', log = console.error, hmr, ready = () => null } = {}) {
   if (existsSync(join(app, '.env'))) process.loadEnvFile(join(app, '.env')); // what the environment has already wins
   const configFile = join(out, 'server', 'goal.config.js');
   const config = existsSync(configFile) ? (await import(pathToFileURL(configFile).href)).default : {};
@@ -230,6 +254,7 @@ export async function serve(app, { out = join(app, 'dist'), port = 5648, dev = f
       req.on('close', () => hmr.delete(res));
       return;
     }
+    for (let b; (b = ready()); ) await b; // the next build may start as this one ends
     const { default: routes, styles } = await import(`${routesFile}?v=${version()}`);
     return createApp(routes, { dev, config, log, styles, staticDirs: [join(out, 'client'), join(out, 'public')] })(req, res);
   });
@@ -244,12 +269,13 @@ export async function serve(app, { out = join(app, 'dist'), port = 5648, dev = f
 export async function dev(app, { port = 5648, log = console.log } = {}) {
   let version = '';
   const pages = new Set();
+  const cache = { compiled: new Map(), exports: new Map() }; // what each file compiled to, kept between builds
   const tell = (m) => {
     for (const res of pages) res.write(`data: ${JSON.stringify(m)}\n\n`);
   };
   const rebuild = async (changed = []) => {
     try {
-      const r = await build(app, { dev: true });
+      const r = await build(app, { dev: true, cache });
       version = r.version;
       log(`built: ${r.routes.length} route(s), ${r.chunks.length} chunk(s)`);
       const type = changed.length && changed.every((f) => f.endsWith('.css')) ? 'css' : 'update';
@@ -262,14 +288,21 @@ export async function dev(app, { port = 5648, log = console.log } = {}) {
   };
   await rebuild();
   process.setSourceMapsEnabled(true); // stack traces point at the .goal files
-  const server = await serve(app, { port, dev: true, version: () => version, log, hmr: pages });
+  // One build at a time: changes that come in during a build wait for it, then go in the next one
   let timer;
   let changed = [];
+  let running = null;
+  const server = await serve(app, { port, dev: true, version: () => version, log, hmr: pages, ready: () => running });
+  const next = async () => {
+    if (running) return;
+    while (changed.length) await (running = rebuild(changed.splice(0)));
+    running = null;
+  };
   const watcher = watch(app, { recursive: true }, (_, f) => {
     if (!/\.(goal|m?js|json|css)$/.test(String(f)) || String(f).startsWith('dist')) return;
     changed.push(String(f));
     clearTimeout(timer);
-    timer = setTimeout(() => rebuild(changed.splice(0)), 30);
+    timer = setTimeout(next, 10); // an editor's save can be a few writes in a row
   });
   // The pages' streams stay open, so close them for the server to close.
   const close = server.close.bind(server);

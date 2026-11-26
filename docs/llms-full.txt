@@ -883,6 +883,11 @@ loader 1064 B. The files' style blocks are one stylesheet, 327 B there.
 A page reloads instead when the new code listens for an event type the page doesn't yet, or when the
 state is too big to send. None of this is in `goal build`.
 
+A build in `goal dev` compiles again only the files that changed, and those that import one that did,
+and skips what only production needs (minifying, sizes), so on the demo a change is on the page about
+50 ms after the save. One build runs at a time: changes made during it go in the next, and a request
+waits for it to finish.
+
 ## Debugging
 
 The browser runs the component as you wrote it: the same top level (`var count = …`, your `const`s,
