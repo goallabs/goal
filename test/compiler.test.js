@@ -877,6 +877,9 @@ describe('errors', () => {
     ['function A() { if (1) return <a/>; return <p/>; }', 'one return, at the end'],
     ['function A() { var { a } = {}; return <p/>; }', 'one name at a time'],
     ['function A() { if (1) { var a = 1; } return <p/>; }', 'at the top of the component'],
+    ['function A() { var n = 0; return <p onclick={() => { var m = n + 1; n = m; }}/>; }', '1:54: inside a function, use let or const: var declares state'],
+    ['function A() { function f() { for (var i = 0; i < 2; i++); } return <p/>; }', '1:36: inside a function, use let or const'],
+    ['function A() { var xs = []; return <ul>{xs.map((x) => { var y = x; return <li>{y}</li>; })}</ul>; }', 'inside a function, use let or const'],
     ['function A() { var a = 1; a = 2; return <p/>; }', 'change it in an event handler'],
     ['function A() { var a = 1; return <p onclick={() => { [a] = [2]; }}/>; }', 'not by destructuring'],
     ['function A() { let a = 1; return <p onclick={() => { a = 2; }}/>; }', 'Declare it with `var`'],
@@ -909,8 +912,34 @@ describe('errors', () => {
     ['function A() { return <p><B t=<b/>/></p>; }', 'a prop value is "text" or {expression}'],
     ['route GET / { var a = 1; return <p/>; }', '`a`: state (var) belongs in a component'],
     ['route GET /{id} { const id = 2; return <p/>; }', "`id` is already the route's path parameter {id}"],
+    // assignments JavaScript would refuse when the code runs
+    ['function A() { const a = 1; a = 2; return <p>{a}</p>; }', "1:29: `a` is a const, so it can't be changed"],
+    ['function A() { const a = 1; return <p onclick={() => { a = 2; }}/>; }', '`a` is a const'],
+    ['function A() { var n = 0; return <p onclick={() => { const m = 1; m++; n = m; }}/>; }', '`m` is a const'],
+    ['route GET / { const a = 1; a += 1; return <p/>; }', '`a` is a const'],
+    ['const a = 1;\nexport function f() { a = 2; }', '2:23: `a` is a const'],
+    ["import { x } from './x.js';\nfunction A() { return <p onclick={() => { x = 1; }}/>; }", "2:43: `x` is an import, so it can't be changed"],
+    ['function A({ start }) { return <p onclick={() => { start = 2; }}/>; }', '`start` comes from the props, so a handler can\'t change it. Copy it into state (var)'],
+    ['function A(props) { return <p onclick={() => props++}/>; }', '`props` comes from the props'],
+    ['function A() { function f() {} return <p onclick={() => { f = 1; }}/>; }', "`f` is a function of the component's, so a handler can't change it"],
+    ['route GET /u/{id} { id = Number(id); return <p>{id}</p>; }', "1:21: `id` is the route's path parameter {id}, so it can't be changed. Give the new value a name of its own"],
+    ['route GET /u/{id} { const f = () => { [id] = [1]; }; return <p/>; }', "`id` is the route's path parameter {id}"],
+    ['let hits = 0;\nfunction A() { return <p onclick={() => { hits++; }}/>; }', "2:43: `hits` is declared outside the component, so the component can't change it: on the server, every request shares it"],
+    ['var n = 0;\nfunction A() { n = 1; return <p/>; }', '`n` is declared outside the component'],
+    ['function f() {}\nfunction A() { return <p onclick={() => { f = 1; }}/>; }', '`f` is declared outside the component'],
   ])('%s', (src, message) => {
     expect(errorOf(src)).toContain(message);
+  });
+
+  it('allows the assignments JavaScript allows', () => {
+    // a prop or a let set while rendering, a handler's own let, a route's own names, a parameter of its own
+    build(`export function A({ start }) { start = start ?? 1; let a = 1; if (start) a = 2; return <p onclick={() => { let m = a; m++; }}>{a}</p>; }
+      route GET /u/{id} { let n = 1; n++; const f = (id) => { id = 1; }; f(n); return <p>{id}</p>; }`);
+    // the file's own variables, changed by server code: a route, a server function, a plain function
+    build(`let visits = 0;
+      function bump() { visits++; }
+      export server function count() { visits++; return visits; }
+      route GET / { visits++; bump(); return <p>{visits}</p>; }`);
   });
 
   it('says where the error is in the .goal source', () => {

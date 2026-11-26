@@ -17,7 +17,8 @@ per request. The body may use `await`.
 
 ## In the body
 
-- Path parameters are plain variables (`id`, `post`), as strings.
+- Path parameters are plain variables (`id`, `post`), as strings. They're constants: give a new value
+  a name of its own (`const n = Number(id)`).
 - `request` has `method`, `path`, `url`, `params`, `query`, `headers`, `cookies`, `form` (a form's
   fields), `files` (a form's files) and `json` (a JSON body).
 - `cookie(name, value, options)` sets a cookie.

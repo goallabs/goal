@@ -171,6 +171,7 @@ const routeEntry = (method, path, handler, types = {}) =>
 
 function transform(ast, mode, o, routes) {
   const program = programPath(t.cloneNode(ast, true));
+  if (mode === 'server') readOnly(program);
   o.tplN = 0; // row templates are numbered the same way in both modes
   const byName = new Map(routes.map((r) => [r.name, r]));
   const routeFns = program.get('body').filter((s) => s.isFunctionDeclaration() && byName.has(s.node.id.name));
@@ -183,6 +184,23 @@ function transform(ast, mode, o, routes) {
   // Markup outside components and routes (helpers that return markup) becomes plain templates.
   program.traverse(jsxVisitor({ kind: 'module', hs: null, scope: program.scope, program: program.scope, reactive: new Set() }));
   return { program, components };
+}
+
+// Assignments JavaScript refuses when the code runs, reported when it compiles instead: to a const
+// or an import, anywhere in the file.
+function readOnly(program) {
+  const scopes = new Set([program.scope]);
+  program.traverse({
+    Scopable(p) {
+      scopes.add(p.scope);
+    },
+  });
+  for (const s of scopes)
+    for (const [name, b] of Object.entries(s.bindings)) {
+      const v = b.constantViolations[0];
+      if (v && b.kind === 'const') fail(`\`${name}\` is a const, so it can't be changed`, v.node);
+      if (v && b.kind === 'module') fail(`\`${name}\` is an import, so it can't be changed`, v.node);
+    }
 }
 
 function programPath(file) {
@@ -271,6 +289,14 @@ function route(fn, meta, program) {
   for (const [name, b] of Object.entries(fn.scope.bindings))
     if (b.kind === 'var') fail(`\`${name}\`: state (var) belongs in a component, because a route runs once per request. Use let or const`, b.path.node);
   for (const p of meta.params) if (fn.scope.hasOwnBinding(p)) fail(`\`${p}\` is already the route's path parameter {${p}}`, fn.scope.getBinding(p).identifier);
+  // A path parameter is a const the compiler declares (below), so it isn't bound yet: `id = 2` assigns a global
+  fn.get('body').traverse({
+    'AssignmentExpression|UpdateExpression'(p) {
+      for (const [n, id] of Object.entries(p.getBindingIdentifiers()))
+        if (meta.params.includes(n) && !p.scope.hasBinding(n))
+          fail(`\`${n}\` is the route's path parameter {${n}}, so it can't be changed. Give the new value a name of its own: const n = Number(${n})`, id);
+    },
+  });
 
   const cId = t.identifier('_$c');
   fn.get('body').traverse(jsxVisitor({ kind: 'route', hs: null, scope: fn.scope, program: program.scope, reactive: new Set(), cId }));
@@ -402,6 +428,10 @@ function analyze(fn) {
     ReturnStatement(p) {
       if (p.node !== last.node && p.getFunctionParent() === fn) fail('a component has one return, at the end', p.node);
     },
+    // var is state, so a var is only at the top of the component: inside a function it's let or const
+    VariableDeclaration(p) {
+      if (p.node.kind === 'var' && p.getFunctionParent() !== fn) fail('inside a function, use let or const: var declares state, at the top of the component', p.node);
+    },
   });
 
   const state = [];
@@ -419,10 +449,19 @@ function analyze(fn) {
       state.push(name);
     } else if (b.kind === 'let' || b.kind === 'const' || b.kind === 'hoisted') {
       for (const v of b.constantViolations)
-        if (v.getFunctionParent() !== fn) fail(`\`${name}\` is computed from state, so a handler can't change it. Declare it with \`var\` to make it state`, v.node);
+        if (v.getFunctionParent() !== fn)
+          fail(b.kind === 'hoisted' ? `\`${name}\` is a function of the component's, so a handler can't change it` : `\`${name}\` is computed from state, so a handler can't change it. Declare it with \`var\` to make it state`, v.node);
       deps.set(name, [b.path, ...b.constantViolations.map((v) => topStatement(v, node.body))]);
+    } else {
+      // the rest are the component's parameter: its props
+      for (const v of b.constantViolations)
+        if (v.getFunctionParent() !== fn) fail(`\`${name}\` comes from the props, so a handler can't change it. Copy it into state (var) and change that`, v.node);
     }
   }
+  // The file's own variables: no page updates when one changes, and on the server every request shares it
+  for (const [name, b] of Object.entries(fn.scope.getProgramParent().bindings))
+    for (const v of b.constantViolations)
+      if (v.isDescendant(fn)) fail(`\`${name}\` is declared outside the component, so the component can't change it: on the server, every request shares it. Make it state with var, in the component`, v.node);
 
   // Names whose markup has event handlers: a hole that uses one is rendered in the browser too.
   const withHandlers = new Set();

@@ -26,12 +26,18 @@ element, not a fragment, and no other `return`. It takes at most one parameter, 
 
 ## State and computed values
 
-- **`var`** declares state, one name at a time, at the top of the component.
+- **`var`** declares state, one name at a time, at the top of the component. A `var` anywhere else in
+  a component, in a block or inside a function such as an event handler, is an error, so a `var` is
+  always state. Inside a function, `let` and `const` are ordinary local variables.
 - State changes only in event handlers (`count++`, `count = x`), never while rendering.
 - Replace arrays and objects instead of changing them in place: `items = [...items, x]`. A change is
   seen when the variable is assigned.
 - **`let` and `const`** are computed: they are worked out again from state each time. A `let` can be
   set by `if`/`else` while rendering, but a handler can't change it. The compiler says to use `var`.
+- A handler can't change a prop either: copy it into state (`var count = start`) and change that.
+- A component can't change a variable declared outside it, at the top of the file: no page would
+  update, and on the server every request shares it. Routes and server functions can.
+- A `const` or an import that's assigned is an error when the app compiles, not when the code runs.
 - The component body runs again on every update, so it must be pure: no side effects while rendering.
 
 ## Markup
