@@ -17,6 +17,7 @@ import { Parser, tokTypes as tt } from 'acorn';
 import jsx from 'acorn-jsx';
 
 export const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+const INPUTS = ['json', 'query', 'form'];
 const SERVER = /^server[ \t]+function[ \t]+([A-Za-z_$][\w$]*)/;
 const SEGMENT = /^(?:[A-Za-z0-9\-._~]+|\{[A-Za-z_][A-Za-z0-9_]*(?:[ \t]*:[ \t]*(?:string|number))?\})$/;
 const STRICT = /^\s*#strict[ \t]*(?=\r?\n|$)/;
@@ -225,14 +226,38 @@ export function desugar(source, file) {
 
     goalRoute(group = TOP) {
       const start = this.start;
-      const m = /^route[ \t]+(\S+)[ \t]+((?:\{[^}\n]*\}|[^\s{])+)[ \t]+\{/.exec(this.input.slice(start));
+      const m = /^route[ \t]+(\S+)[ \t]+((?:\{[^}\n]*\}|[^\s{])+)[ \t]+([{(])/.exec(this.input.slice(start));
       if (!m) fail(start, 'write a route as: route GET /path { ... }');
       const [head, method, path] = m;
       if (!METHODS.includes(method)) fail(start, `unknown method ${method}; use ${METHODS.join(', ')}`);
       const p = this.goalPath(start, path, group);
       const name = `_$r${routes.length}`;
-      routes.push({ method, ...p, name, ...(group.api ? { api: true } : {}), ...(group.before.length ? { before: group.before } : {}) });
-      return this.goalHandler(start, head.length, name, 'GoalRoute');
+      const input = m[3] === '(' ? this.goalInput(start, start + head.length - 1) : null;
+      const length = input ? this.start + 1 - start : head.length;
+      routes.push({ method, ...p, name, ...(group.api ? { api: true } : {}), ...(group.before.length ? { before: group.before } : {}), ...(input ? { input, at: start } : {}) });
+      return this.goalHandler(start, length, name, 'GoalRoute');
+    }
+
+    // (json: Note, query: { page?: number }): the types of a route's input, which the server checks.
+    // Inside the route, request has them (keyed at the route, where its request parameter maps).
+    goalInput(start, paren) {
+      this.typed(start);
+      this.pos = paren;
+      this.next();
+      this.next();
+      const input = {};
+      while (!this.eat(tt.parenR)) {
+        const key = this.value;
+        if (this.type !== tt.name || !INPUTS.includes(key)) fail(this.start, 'a route takes the types of its input: (json: Note, query: { page?: number }, form: { title: string })');
+        if (input[key]) fail(this.start, `the route names the type of ${key} twice`);
+        this.next();
+        this.expect(tt.colon);
+        input[key] = this.goalType();
+        if (this.type !== tt.parenR) this.expect(tt.comma);
+      }
+      if (this.type !== tt.braceL) fail(this.start, "the route's body goes in { } after its types");
+      types.at.set(start, { k: 'object', fields: Object.fromEntries(Object.entries(input).map(([k, type]) => [k, { type, optional: false }])) });
+      return input;
     }
 
     // A route's or group's path, joined to its group's: the full path, its parameters and their types

@@ -18,7 +18,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { once } from 'node:events';
 import { readFileSync, statSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
-import { isHtml } from './rt.js';
+import { isHtml, _$e, _$ok } from './rt.js';
 import { _$ctx } from './render.js';
 import { _$lr } from './load.js';
 import { page } from './server.js';
@@ -124,8 +124,42 @@ async function* messages(source) {
   for await (const v of source) yield `data: ${JSON.stringify(v ?? null)}\n\n`;
 }
 
-const errorPage = (title) =>
-  `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><h1>${title}</h1></body></html>`;
+const errorPage = (title, items = []) =>
+  `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><h1>${title}</h1>${items.length ? `<ul>${items.map((x) => `<li>${_$e(x)}</li>`).join('')}</ul>` : ''}</body></html>`;
+
+/**
+ * A route's typed input (see types.js), checked: a query's or a form's text is converted first, in
+ * place, to the numbers and booleans its type has. Answers 400, naming the fields that are wrong (never
+ * their values), or nothing when all is well.
+ */
+function badInput(request, input, api) {
+  const found = [];
+  for (const [k, type] of Object.entries(input)) {
+    if (k !== 'json')
+      for (const [n, f] of Object.entries(type.fields)) {
+        const v = request[k][n];
+        if (f.type.k === 'number' && /^-?\d+(\.\d+)?$/.test(v)) request[k][n] = Number(v);
+        if (f.type.k === 'boolean' && /^(true|false|on)$/.test(v)) request[k][n] = v !== 'false';
+      }
+    wrong(request[k], type, k, found);
+  }
+  if (!found.length) return;
+  return api ? json({ error: 'Bad request', problems: found }, 400) : { [REPLY]: true, status: 400, type: HTML, body: errorPage('Bad request', found) };
+}
+
+/** What's wrong with a value for a type, by where (json.title), up to ten things. */
+function wrong(v, x, at, found) {
+  if (found.length >= 10) return;
+  if (x.k === 'object' && v && typeof v === 'object' && !Array.isArray(v)) {
+    for (const [n, f] of Object.entries(x.fields))
+      if (v[n] != null) wrong(v[n], f.type, `${at}.${n}`, found);
+      else if (!f.optional && !_$ok(v[n], f.type)) found.push(`${at}.${n}: missing`);
+  } else if (x.k === 'array' && Array.isArray(v)) v.forEach((y, i) => wrong(y, x.of, `${at}[${i}]`, found));
+  else if (!_$ok(v, x)) found.push(`${at}: expected ${kind(x)}`);
+}
+
+const kind = (x) =>
+  x.k === 'union' ? x.of.map(kind).join(' or ') : x.k === 'lit' ? JSON.stringify(x.v) : x.k === 'array' ? 'a list' : x.k === 'object' ? 'an object' : x.k;
 
 export const notFound = () => ({ [REPLY]: true, status: 404, type: HTML, body: errorPage('Not found') });
 
@@ -404,6 +438,7 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
       // The groups' before blocks run first, outer first: one that returns something answers instead
       let out;
       for (const b of m.route.before ?? []) if ((out = await b(request, x)) !== undefined) break;
+      if (out === undefined && m.route.input) out = badInput(request, m.route.input, api); // then the input's types
       if (out === undefined) out = await m.route.handler(request, x);
       let status = 200;
       let extra;

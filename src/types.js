@@ -411,7 +411,21 @@ export function check(ast, d, other, fail) {
     if (t.isFunctionDeclaration(fn) && server.has(fn.id.name))
       params.set(fn.id.name, fn.params.map((x) => ({ type: out(at(t.isAssignmentPattern(x) ? x.left : x)), optional: t.isAssignmentPattern(x) })));
   }
-  return { params };
+  // And each route's input: a query or a form arrives as text, so only fields that text converts to
+  const inputs = new Map();
+  for (const r of d.routes.filter((r) => r.input))
+    inputs.set(
+      r.name,
+      Object.fromEntries(
+        Object.entries(r.input).map(([k, x]) => {
+          const y = out(x);
+          if (k !== 'json' && !(y.k === 'object' && Object.values(y.fields).every((f) => ['string', 'number', 'boolean'].includes(f.type.k))))
+            fail(`${k} arrives as text: give it an object type whose fields are string, number or boolean, not ${show(x)}`, here(r.at));
+          return [k, y];
+        }),
+      ),
+    );
+  return { params, inputs };
 
   /** What in a type can't be rendered as markup: an object, or 'fn' for a function. */
   function unrenderable(x) {

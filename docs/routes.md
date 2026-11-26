@@ -133,6 +133,35 @@ group /api/v1 api {
 export default { cors: ['https://app.example.com'] };
 ```
 
+## Typed input
+
+In a [`#strict`](types) file, a route can name the types of its `json`, `query` and `form` in
+parentheses after its path. A request whose input doesn't fit is answered 400 and never reaches the
+route, and inside it `request.json`, `request.query` and `request.form` have those types:
+
+```jsx
+#strict
+type NewNote = { title: string, tags?: string[] };
+
+group /api api {
+  route POST /notes (json: NewNote) {
+    return json(await addNote(request.json), 201);
+  }
+  route GET /notes (query: { page?: number, q?: string }) {
+    return json(await notes(request.query.page ?? 1, request.query.q));
+  }
+}
+```
+
+- A query and a form arrive as text, so their type is an object whose fields are `string`, `number` or
+  `boolean`. Text that reads as one is converted first: `?page=2` gives `2`, and `true`, `false` and a
+  checkbox's `on` give booleans.
+- The 400 names what's wrong, by field and never by value, up to ten things:
+  `{ "error": "Bad request", "problems": ["json.title: missing"] }` in an [API group](#api-routes), and
+  the same list on the error page elsewhere.
+- The check runs after the groups' `before` blocks, so a request that isn't signed in gets their answer
+  first.
+
 ## Matching
 
 - Fixed paths win over paths with parameters: `/users/new` is chosen before `/users/{id}`.

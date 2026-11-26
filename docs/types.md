@@ -75,12 +75,14 @@ A.goal:2:1: ./Card.goal isn't #strict: a #strict file can import only #strict .g
 
 ## At runtime
 
-Types are erased: the browser code carries none. Two checks stay on the server, because their values
+Types are erased: the browser code carries none. Three checks stay on the server, because their values
 come from the network:
 
 - A server function's typed parameters: a request whose arguments don't fit is answered 400 and never
   reaches the function.
 - A route's typed path parameters: `/notes/abc` doesn't match `/notes/{id: number}`, so it gets a 404.
+- A route's [typed input](routes#typed-input): a body or query that doesn't fit is answered 400, naming
+  the fields that are wrong.
 
 ## Where errors show
 

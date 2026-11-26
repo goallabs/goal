@@ -143,7 +143,7 @@ export function compile(source, opts = {}) {
           t.variableDeclarator(
             t.identifier('_$routes'),
             t.arrayExpression([
-              ...d.routes.map((r) => routeEntry(r.method, r.path, t.identifier(r.name), r)),
+              ...d.routes.map((r) => routeEntry(r.method, r.path, t.identifier(r.name), { ...r, input: typed?.inputs.get(r.name) })),
               ...endpoints.map((f) =>
                 routeEntry(
                   'POST',
@@ -170,7 +170,7 @@ export function compile(source, opts = {}) {
   };
 }
 
-const routeEntry = (method, path, handler, { types = {}, api, before } = {}) =>
+const routeEntry = (method, path, handler, { types = {}, api, before, input } = {}) =>
   t.objectExpression([
     t.objectProperty(t.identifier('method'), t.stringLiteral(method)),
     t.objectProperty(t.identifier('path'), t.stringLiteral(path)),
@@ -178,6 +178,7 @@ const routeEntry = (method, path, handler, { types = {}, api, before } = {}) =>
     ...(Object.keys(types).length ? [t.objectProperty(t.identifier('types'), t.valueToNode(types))] : []), // typed path parameters
     ...(api ? [t.objectProperty(t.identifier('api'), t.booleanLiteral(true))] : []), // in a group /path api
     ...(before ? [t.objectProperty(t.identifier('before'), t.arrayExpression(before.map((b) => t.identifier(b))))] : []), // its groups' before blocks
+    ...(input ? [t.objectProperty(t.identifier('input'), t.valueToNode(input))] : []), // the types of its input, checked per request
   ]);
 
 // ---------------------------------------------------------------------------------------------
