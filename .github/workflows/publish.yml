@@ -1,0 +1,29 @@
+# Publishes goaljs to npm when a version tag (v0.8.1) is pushed, with npm's trusted publishing: npm
+# trusts this workflow, so there is no token to keep and no one-time password. One-time setup on
+# npmjs.com: goaljs → Settings → Trusted publishing → GitHub Actions, repository goallabs/goal,
+# workflow publish.yml. A tag already pushed can be published from the Actions tab (Run workflow).
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # for npm's trusted publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm test
+      # The tag names the version in package.json, so a tag can't publish another version
+      - run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}" || test "${GITHUB_EVENT_NAME}" = workflow_dispatch
+      - run: npm publish
