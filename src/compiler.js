@@ -547,6 +547,7 @@ function element(p, cx, top, root, row) {
   if (tag === 'style') fail('put CSS in a file under public/ and link it: <link rel="stylesheet" href="/style.css" />', p.node);
 
   const parts = ['<' + tag + (SCOPE && !UNSEEN.has(tag) ? ' ' + SCOPE : '')];
+  let rowKey; // a row of a keyed list patched as a whole: components in it keep their state by its key
   const ons = []; // m-on entries: "click:0" for a fixed handler, or parts that number one made while rendering
   let id;
   let method;
@@ -562,11 +563,15 @@ function element(p, cx, top, root, row) {
         continue;
       }
       // A list in markup that is patched as a whole: inside an element in an {if}, or in another list's
-      // row. Its rows carry their key (m-k), and the patch finds each row by it (rt.js). A list that
-      // never changes renders once, and needs none.
+      // row. Its rows carry their key (m-k), and the patch finds each row by it (rt.js), and so do the
+      // components in them, for their state (render.js). In a hole that renders again any list may
+      // change (cx.live); a list that never changes renders once, and needs none.
       const list = mapOf(p);
       if (!list) fail('key goes on the outer element of a list row: items.map((x) => <li key={x.id}>...</li>)', a.node);
-      if (cx.inRow || (cx.kind === 'component' && changes(list, cx))) parts.push(t.callExpression(t.identifier('_$a'), [t.stringLiteral('m-k'), v.node.expression]));
+      if (cx.inRow || (cx.kind === 'component' && (cx.live || changes(list, cx)))) {
+        parts.push(t.callExpression(t.identifier('_$a'), [t.stringLiteral('m-k'), v.node.expression]));
+        rowKey = v.node.expression;
+      }
       continue;
     }
     if (/^on/i.test(name)) {
@@ -628,7 +633,10 @@ function element(p, cx, top, root, row) {
     if (p.node.children.length) fail(`<${tag}> can't have children`, p.node);
     return parts;
   }
+  const keys = cx.keys;
+  if (rowKey) cx.keys = [...(keys ?? []), rowKey];
   children(p, cx, top, parts, row);
+  cx.keys = keys;
   parts.push(`</${tag}>`);
   return parts;
 }
@@ -690,7 +698,10 @@ const changes = (e, cx) => uses(e, cx.scope, cx.reactive) || uses(e, cx.scope, c
 function hole(c, cx, top, parts) {
   const dyn = cx.dyn;
   cx.at = cx.binds?.length; // in a component, the binding it becomes: components rendered in it look for theirs there
+  const live = cx.live;
+  cx.live ||= top && changes(c.get('expression'), cx); // it renders again when what it reads changes
   inner(c.get('expression'), cx);
+  cx.live = live;
   const ex = t.callExpression(t.identifier('_$h'), [c.node.expression]);
   if (top && (cx.dyn > dyn || changes(c.get('expression'), cx))) {
     if (readsChildren(c.get('expression'), cx))
@@ -931,7 +942,8 @@ function componentCall(p, cx, tag, top) {
   let ctx = cx.cId;
   if (cx.mode === 'client' && (live || !top)) {
     cx.b = true;
-    ctx = t.callExpression(t.memberExpression(t.identifier('_$B'), t.identifier('h')), [t.numericLiteral(live ? cx.binds.length : cx.at)]);
+    const keys = !live && cx.keys ? [t.arrayExpression(cx.keys.map((k) => t.cloneNode(k, true)))] : []; // the keyed rows it's in, if any
+    ctx = t.callExpression(t.memberExpression(t.identifier('_$B'), t.identifier('h')), [t.numericLiteral(live ? cx.binds.length : cx.at), ...keys]);
   }
   const call = t.callExpression(t.identifier(tag), [t.objectExpression(props), ctx]);
   if (!live) return [call];

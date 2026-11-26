@@ -1,0 +1,908 @@
+# goal.js: all the docs
+
+> Every page of https://goallabs.github.io/goal, in one file. The short index is https://goallabs.github.io/goal/llms.txt.
+
+# goal.js
+
+A compiled JavaScript framework where **`var` is state** and **`let`/`const` are computed**.
+
+- **Server-rendered and resumable.** Pages are rendered on the server, and the browser resumes them
+  instead of hydrating: no component code runs at load.
+- **Small.** Each component's code loads on its first event, in a chunk of its own: 220 B to 1.3 kB
+  gzipped in the demo app. A page with no events ships no JavaScript at all.
+- **No `async`, no `fetch`.** Components reach the server through [server functions](https://goallabs.github.io/goal/server-functions),
+  called like plain functions.
+- **Secure by default.** Escaping, URL checks, a strict Content-Security-Policy, CSRF protection and
+  safe cookies are on with no setup. Each one has an explicit way out. See [Security](https://goallabs.github.io/goal/security).
+- **HTML as written.** Events are `onclick`, attributes are `class` and `for`, and `{if}` goes straight
+  in the markup. There is no `bind:`, `@`, `:` or `$`.
+
+```jsx
+// app.goal
+import { Counter } from './Counter.goal';
+
+route GET / {
+  return <main><h1>Hello</h1><Counter start={1} /></main>;
+}
+```
+
+```jsx
+// Counter.goal
+export function Counter({ start }) {
+  var count = start;                         // state
+  const double = count * 2;                  // computed
+
+  return (
+    <div>
+      <button onclick={() => count++}>+</button>
+      <p>{double}</p>
+      {if (count > 9) <b>big</b> else <span>small</span>}
+    </div>
+  );
+}
+```
+
+## Where to go next
+
+- [Getting started](https://goallabs.github.io/goal/getting-started): install goal.js and run your first app.
+- [Routes](https://goallabs.github.io/goal/routes) and [Components](https://goallabs.github.io/goal/components): the `.goal` language.
+- [Server functions](https://goallabs.github.io/goal/server-functions): calling the server from a component.
+- [Types](https://goallabs.github.io/goal/types): `#strict` files, checked before the app runs.
+- [Security](https://goallabs.github.io/goal/security): what is on by default, and how to change it.
+- [How it works](https://goallabs.github.io/goal/how-it-works): parse, compile, render and resume, and debugging.
+- [Performance](https://goallabs.github.io/goal/performance): benchmark results, and how to measure your own.
+- [Vite](https://goallabs.github.io/goal/vite): working on an app inside Vite's dev server.
+- [Tools](https://goallabs.github.io/goal/tools): `goal add` sets up Tailwind CSS, Prisma, Drizzle, ESLint, Prettier, Vitest,
+  Playwright and Sentry.
+- For AI assistants: [llms.txt](https://goallabs.github.io/goal/llms.txt), a summary of goal.js with a
+  link to each page, and [llms-full.txt](https://goallabs.github.io/goal/llms-full.txt), all the docs
+  in one file.
+
+## Status
+
+goal.js is young, and these are not supported yet:
+
+- components inside a keyed list's row.
+
+# Getting started
+
+## Install
+
+goal.js needs Node.js. Make a folder for your app and install it there:
+
+```bash
+mkdir my-app && cd my-app
+npm init -y
+npm install goaljs
+```
+
+## Your first app
+
+An app is a folder of `.goal` files. Create `app.goal`:
+
+```jsx
+import { Counter } from './Counter.goal';
+
+route GET / {
+  return (
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <title>My app</title>
+      </head>
+      <body>
+        <h1>Hello</h1>
+        <Counter start={1} />
+      </body>
+    </html>
+  );
+}
+```
+
+And `Counter.goal`:
+
+```jsx
+export function Counter({ start }) {
+  var count = start;
+  return <button onclick={() => count++}>Clicked {count} times</button>;
+}
+```
+
+Then start the development server:
+
+```bash
+npx goal dev .
+```
+
+Open <http://localhost:3000> and click the button. The page was rendered on the server; the
+component's code loaded when you pointed at the button, and the click updated only the number.
+
+Now change `Counter.goal`, say the button's text, and save. The page updates without reloading, and
+the count stays where it was. A stylesheet change applies in place, and a compile error shows over
+the page, with the file, line and column, until you fix it.
+
+## Commands
+
+```bash
+goal dev <app>      # build, serve with error details, update open pages when a file changes
+goal build <app>    # compile into <app>/dist; prints the routes and each chunk's size
+goal start <app>    # serve a built app (--port 3000)
+goal check <app>    # check every file, types too, and list the errors
+goal add <tool>     # set up Tailwind CSS, Prisma, ESLint, Vitest and more (see Tools)
+```
+
+## What goes in an app
+
+- `.goal` files, anywhere in the folder: [routes](https://goallabs.github.io/goal/routes) and [components](https://goallabs.github.io/goal/components), each with
+  its own CSS in a [style block](https://goallabs.github.io/goal/components#styles) if it likes.
+- `.js` and `.json` files for server code the `.goal` files import.
+- A `public/` folder for CSS, images and fonts, served as they are. With a `postcss.config.js`, the
+  stylesheets go through PostCSS first (see [Tools](https://goallabs.github.io/goal/tools)).
+- An optional `goal.config.js` that changes the [security defaults](https://goallabs.github.io/goal/security) and can report
+  [errors](https://goallabs.github.io/goal/security#errors).
+- An optional `.env` file, read into `process.env` by `goal dev` and `goal start`. A variable that's
+  already set in the environment wins.
+
+Other folders are fine too: `goal build` skips `node_modules` and `dist`.
+
+# Routes
+
+```jsx
+route GET /notes { ... }
+route POST /notes { ... }
+route GET /users/{id}/posts/{post} { ... }
+```
+
+A route is written at the top level of any `.goal` file. It has a method (`GET`, `POST`, `PUT`,
+`PATCH` or `DELETE`), a path where `{name}` is a parameter, and a body that runs on the server once
+per request. The body may use `await`.
+
+## In the body
+
+- Path parameters are plain variables (`id`, `post`), as strings. They're constants: give a new value
+  a name of its own (`const n = Number(id)`).
+- `request` has `method`, `path`, `url`, `params`, `query`, `headers`, `cookies`, `form` (a form's
+  fields), `files` (a form's files) and `json` (a JSON body).
+- `cookie(name, value, options)` sets a cookie.
+
+## What a route returns
+
+| Return | Response |
+|---|---|
+| Markup | An HTML page |
+| `redirect('/path')` | 303 to that path, on this site only; `redirect(url, { external: true })` to leave it |
+| `json(value, status)` | JSON |
+| `notFound()` | 404 |
+| Nothing | 204 |
+
+Markup that starts with `<html>` is the whole document: put `<title>` and
+`<link rel="stylesheet" href="/style.css" />` in its `<head>`. Other markup goes in a plain document.
+
+## Matching
+
+- Fixed paths win over paths with parameters: `/users/new` is chosen before `/users/{id}`.
+- A path with the wrong method gets 405, with an `Allow` header.
+- HEAD works wherever GET does.
+
+## File uploads
+
+A form with `enctype="multipart/form-data"` sends its files. Its text fields arrive in `request.form`,
+and each file input's files in `request.files`, as a list under the input's name. A file is
+`{ name, type, size, data }`, where `data` is a Buffer:
+
+```jsx
+<form method="post" action="/photos" enctype="multipart/form-data">
+  <input type="file" name="photo" multiple />
+  <button>Upload</button>
+</form>
+```
+
+```jsx
+route POST /photos {
+  for (const f of request.files.photo ?? []) save(f.data);
+  return redirect('/photos');
+}
+```
+
+The file name and type come from the browser, so don't use them as a path or trust them. A file input
+left empty arrives as an empty field. The whole body is limited to 1 MB by default: raise
+[`bodyLimit`](https://goallabs.github.io/goal/security#the-rest) for bigger files.
+
+## Forms with any method
+
+A form can use any method. `<form method="delete" action="/notes">` is sent as a POST with the method
+in a hidden field, and the route for `DELETE /notes` answers it. Forms that send data get the
+[CSRF token](https://goallabs.github.io/goal/security#csrf) automatically.
+
+# Components
+
+```jsx
+export function Counter({ start }) {
+  var count = start;                         // state
+  const double = count * 2;                  // computed
+  const tone = count % 2 ? 'odd' : 'even';   // computed
+
+  return (
+    <div class={tone}>
+      <button onclick={() => count++}>+</button>
+      <p>{double}</p>
+      {if (count > 9) <b>big</b> else if (count < 0) <i>negative</i> else <span>small</span>}
+    </div>
+  );
+}
+```
+
+A component is a top-level function with a capitalised name that ends in `return <element>`: one
+element, not a fragment, and no other `return`. It takes at most one parameter, its props.
+
+## State and computed values
+
+- **`var`** declares state, one name at a time, at the top of the component. A `var` anywhere else in
+  a component, in a block or inside a function such as an event handler, is an error, so a `var` is
+  always state. Inside a function, `let` and `const` are ordinary local variables.
+- State changes only in event handlers (`count++`, `count = x`), never while rendering.
+- Replace arrays and objects instead of changing them in place: `items = [...items, x]`. A change is
+  seen when the variable is assigned.
+- **`let` and `const`** are computed: they are worked out again from state each time. A `let` can be
+  set by `if`/`else` while rendering, but a handler can't change it. The compiler says to use `var`.
+- A handler can't change a prop either: copy it into state (`var count = start`) and change that.
+- A component can't change a variable declared outside it, at the top of the file: no page would
+  update, and on the server every request shares it. Routes and server functions can.
+- A `const` or an import that's assigned is an error when the app compiles, not when the code runs.
+- The component body runs again on every update, so it must be pure: no side effects while rendering.
+
+## Markup
+
+- **`{if (a) X else if (b) Y else Z}`** and ternaries go straight in markup, and in attribute values.
+  Without an `else`, nothing is rendered.
+- **HTML names.** Events are `onclick`, `oninput`, `onsubmit` and so on, with a function. Attributes are
+  `class`, `for`, `disabled`, `value`. A reactive attribute is just `name={expression}`.
+- A form with `onsubmit` never reloads the page.
+- `{value}` children are escaped. `null`, `false` and `true` render nothing, and arrays are joined.
+- When a `{...}` hole changes, its new markup goes into the nodes already there: an element that is
+  still the same kind of element is kept, so an input inside the hole keeps its focus and what was
+  typed.
+
+## Lists
+
+Event handlers work anywhere in the markup, including on list items:
+
+```jsx
+<ul>{items.map((x) => <li onclick={() => (picked = x)}>{x}</li>)}</ul>
+```
+
+A list without keys is made again as a whole when it changes, which is fine for a short one.
+
+### Keyed lists
+
+`key` on a list's rows patches the list by key:
+
+```jsx
+<ul>{items.map((x) => <li key={x.id}>{x.text}</li>)}</ul>
+```
+
+When the list changes, a kept row gets only its changed values written, new rows are added in one go,
+and only the rows that are out of order move. Only a component with a keyed list loads that code.
+
+A keyed list can go anywhere in the markup: straight in it, in an `{if}` or ternary branch, inside
+an element in a branch, or inside another list's row.
+
+```jsx
+<ul>{if (open) items.map((x) => <li key={x.id}>{x.text}</li>) else <li>Closed</li>}</ul>
+```
+
+Inside an element in a branch, or in a row, the rows carry their key. When the markup around them
+changes, each row is found by its key and moved, keeping its nodes, and with them an input's focus
+and what was typed.
+
+A list that never changes, such as one in a route, renders once and needs no key.
+
+## Components inside components
+
+A component can render another anywhere in its markup: in its fixed part, in an `{if}` or ternary
+branch, or in a list without keys.
+
+```jsx
+export function Panel() {
+  var open = true;
+  var n = 1;
+  return (
+    <div>
+      <button onclick={() => n++}>more</button>
+      {if (open) <Counter start={n} />}
+      <Counter start={n} />
+    </div>
+  );
+}
+```
+
+- When the props a child gets read state, the child is rendered again in the browser when they change.
+  It keeps its own state, so the second `Counter` above shows the new `start` and keeps its count.
+- A component in a `{...}` hole starts from its props when it appears, and keeps its state while it
+  stays. Each one keeps its own, even next to others of its kind. In a keyed list's rows, each keeps
+  its state by its row's key, so the components of a row that moves move with it.
+- A child without state or handlers ships no code of its own: its parent renders it again.
+
+To render a child in the browser, the parent's code includes the child's template, and the module code
+it uses, but nothing else from the child's file: routes and server functions stay on the server.
+
+### Children
+
+Markup between a component's tags is its `children`:
+
+```jsx
+<Card title="Total"><p>{count}</p><button onclick={() => count++}>+</button></Card>
+```
+
+```jsx
+export function Card({ title, children }) {
+  return <section><h2>{title}</h2>{children}</section>;
+}
+```
+
+Children belong to the component that wrote them: `{count}` and the `onclick` above are the parent's,
+wherever `Card` puts them. Put `{children}` in the child's fixed part, not inside a `{...}` hole that
+renders again: that would be a compile error.
+
+### Function props
+
+A function passed as a prop runs in the component that passed it:
+
+```jsx
+<Picker onpick={(x) => (picked = x)} />
+```
+
+```jsx
+export function Picker({ onpick }) {
+  var n = 0;
+  return <button onclick={() => onpick(++n)}>pick</button>;
+}
+```
+
+When `Picker` calls `onpick`, the parent's state changes and the parent updates, as if it had handled
+an event itself. Call a function prop from an event handler, not while rendering: on the server it does
+nothing.
+
+## Styles
+
+A `style` block holds a file's CSS. It styles only the markup that file renders:
+
+```jsx
+style {
+  .card { border: 1px solid #ccc; border-radius: 8px; }
+  strong { color: #1d4ed8; }
+}
+
+export function Counter({ start = 0 }) {
+  var count = start;
+  return <div class="card"><strong>{count}</strong></div>;
+}
+```
+
+- Each element the file renders carries the file's scope, an attribute like `g-x7k2pq`, and each
+  selector gets it on its last part: `.card strong` styles a `<strong>` this file renders, inside any
+  `.card`. The scope adds no specificity, so a selector weighs what it does as written.
+- Markup given to a component as children belongs to the file that writes it, and so do its styles.
+  A parent styles what it passes in; the child styles its own markup.
+- Rules inside `@media`, `@supports`, `@container` and `@layer` are scoped too, and so are nested
+  rules. `@keyframes` and `@font-face` are kept as written, and their names are the page's.
+- A file has one style block, at its top level. `@import` doesn't go in one: put page-wide CSS in a
+  stylesheet under `public/` and link it.
+- `goal build` puts every file's style block in one stylesheet, `/c/_/style.css`, and each page links
+  it at the end of its head, after the page's own stylesheets. With a `postcss.config.js`, it goes
+  through PostCSS too. There is no inline style, so the strict Content-Security-Policy stays.
+
+## Compile errors
+
+Breaking a rule is a compile error with the file, line and column:
+
+```
+components/Counter.goal:6:3: `count` is state: change it in an event handler, not while rendering
+components/Counter.goal:9:15: write onclick, the HTML name, not onClick
+```
+
+## Not supported yet
+
+- Components inside a keyed list's row.
+
+# Server functions
+
+```jsx
+// notes.goal
+const notes = [];
+
+export server function addNote(text) {
+  notes.push(String(text).slice(0, 200));
+  return notes;
+}
+
+export function Notes() {
+  var list = [];
+  var saving = false;
+
+  function add(e) {
+    saving = true;              // shown at once
+    list = addNote('hello');    // a request to the server; the handler waits for the answer
+    saving = false;
+  }
+
+  return <button onclick={add} disabled={saving}>Add ({list.length})</button>;
+}
+```
+
+A `server function` runs on the server. A component calls it like any other function, from an event
+handler or from a function declared at the top of the component, and goal.js sends the request and
+waits for the answer.
+
+Nobody writes `async`, `await` or `fetch`: in a component they are compile errors. The page updates as
+soon as the handler changes something (`saving = true` above), and again when the server answers.
+Routes and other server functions call server functions directly, also with no `await`.
+
+## Rules
+
+- Arguments and the return value travel as JSON, so dates, maps and class instances don't arrive as
+  they were.
+- Each server function is a `POST /_m/<file>/<name>` endpoint behind the [CSRF check](https://goallabs.github.io/goal/security#csrf);
+  the page carries the token. Treat its arguments as untrusted input.
+- A component can't call one while rendering. Load the data in the route and pass it as a prop.
+- Server functions are declared at the top level of a file. `export server function` lets other
+  `.goal` files import them.
+
+# Security
+
+All of this is on with no setup. `goal.config.js`, at the top of the app folder, can change the parts
+marked *config*:
+
+```js
+export default { csp: "default-src 'self'; script-src 'self' 'nonce-{nonce}'", csrf: false, bodyLimit: 5_000_000 };
+```
+
+`goal build` copies it into `dist/server` with the server code, so it can import `.js` files of the
+app's, and `goal start` reads it from there.
+
+## Escaping
+
+Every value is escaped in text and in attributes. There is no raw-HTML escape hatch. `<script>`,
+`<style>`, `srcdoc` and string event handlers (`onclick="..."`) are compile errors. A file's CSS goes
+in its [style block](https://goallabs.github.io/goal/components#styles), which `goal build` puts in a stylesheet of its own, so pages
+need no inline styles.
+
+## URLs
+
+In `href`, `src`, `action`, `formaction` and the other URL attributes, only relative, `http(s):`,
+`mailto:` and `tel:` URLs get through. A `javascript:` or `data:` URL written in the source is a
+compile error. One that comes from data becomes `about:invalid#blocked`, on the server and when the
+browser patches the page.
+
+## Headers
+
+Every response has:
+
+- a strict Content-Security-Policy with a fresh nonce for the loader (*config* `csp`, where `{nonce}`
+  is replaced, or `false` to send none);
+- `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `frame-ancestors 'none'`;
+- same-origin opener and resource policies, a Referrer-Policy and a Permissions-Policy;
+- HSTS over TLS.
+
+## CSRF
+
+A POST, PUT, PATCH or DELETE from another site is refused: always when `Origin` or `Sec-Fetch-Site`
+says cross-site, and without `Sec-Fetch-Site: same-origin` the request needs the CSRF token. Forms
+that send data get the token as a hidden field automatically, server functions send it for you, and
+your own `fetch` can send it as the `x-csrf-token` header (*config* `csrf: false` to turn it off).
+
+## Only what the browser needs
+
+A component's root element carries its state and only the props its browser code reads. Props used
+only while rendering on the server never reach the page.
+
+## The rest
+
+- Request bodies are limited to 1 MB (*config* `bodyLimit`).
+- `redirect()` stays on this site unless told otherwise.
+- Cookies are `HttpOnly`, `Secure` and `SameSite=Lax` unless a route says otherwise.
+- Static files are served only from `public/` and the chunks folder.
+- Error details (the stack) are shown only in `goal dev`. Otherwise the page is a plain error page, and
+  the error is logged.
+
+## Errors
+
+An error that a route or server function throws is logged, and answered with a 500 page. To report it
+somewhere too, such as an error tracker, give `goal.config.js` an `onError` (*config*):
+
+```js
+import { report } from './report.js';
+
+export default {
+  onError(error, request) {
+    report(error, { method: request.method, path: request.path });
+  },
+};
+```
+
+It runs after the answer is on its way, so it doesn't slow the page, and an error it throws is
+logged. `goal add sentry` sets it up for [Sentry](https://goallabs.github.io/goal/tools).
+
+# Types
+
+A `.goal` file that starts with `#strict` is type-checked: goal.js finds wrong props, state of the
+wrong type, markup that can't render and bad data sent to the server, before the app runs. Any other
+file compiles as it always has.
+
+```jsx
+#strict
+export type Note = { id: number, text: string, done?: boolean };
+
+export function Board({ initial }: { initial: Note[] }) {
+  var notes = initial;                // a Note[]: worked out from initial
+  var draft: string | null = null;    // written: null alone doesn't say
+  ...
+}
+
+export server function addNote(text: string): Note[] { ... }
+
+route GET /notes/{id: number} { ... }
+```
+
+## Writing types
+
+Types are written `name: Type`, in five places; everything else is worked out from the code.
+
+1. A component's props, on its parameter.
+2. A `var` whose initial value doesn't say its type, like `[]` or `null`.
+3. A server function's parameters, and its result if you want it checked.
+4. A route's path parameters: `{id: number}` matches only a number, and the route gets it as one.
+5. `type` declarations, which `export` shares with other `.goal` files.
+
+| Type | Written |
+| --- | --- |
+| Text, numbers, true or false, nothing | `string`, `number`, `boolean`, `null`, `undefined` |
+| A choice of values | `'draft' \| 'sent'`, `string \| null` |
+| A list | `Note[]` |
+| An object, with optional fields | `{ id: number, text: string, done?: boolean }` |
+| A function, for function props | `(x: string) => void` |
+| Markup, for children | `Markup` |
+| Anything, unchecked | `unknown` |
+| A declared type | `Note` |
+
+## What is checked
+
+| Check | Code | Error |
+| --- | --- | --- |
+| A prop of the wrong type | `<Counter start="1" />` | `Counter's start is number, not string` |
+| A required prop left out | `<Counter />` | `Counter needs start` |
+| A prop the component doesn't take | `<Counter strat={1} />` | `Counter has no prop strat; did you mean start?` |
+| State given the wrong type | `count = 'x'` | `count is number, not string` |
+| Markup that can't render | `{user}` | `{ name: string } can't be rendered: render a field of it, like {user.name}` |
+| A true-or-false attribute | `disabled={'no'}` | `disabled takes true or false, not string` |
+| A call's arguments | `addNote(42)` | `addNote takes string, not number` |
+| A returned value | `return 1` in a function typed `: string` | `f returns string, not number` |
+| A server function's result | `: () => void` | `addNote's result travels as JSON: () => void can't` |
+
+A `#strict` file must also give a type wherever one can't be worked out: a component's props, a server
+function's parameters, a `var` that starts as `[]` or `null`, and a value from a `.js` module, which has
+no types (`const rows: Note[] = db.all()`). What still can't be worked out is unknown, and unknown is
+never an error.
+
+## Imports
+
+A `#strict` file can import `.js` modules and npm packages freely. Among `.goal` files it can import
+only `#strict` ones, so the props, types and server functions it uses are all known:
+
+```
+A.goal:2:1: ./Card.goal isn't #strict: a #strict file can import only #strict .goal files
+```
+
+## At runtime
+
+Types are erased: the browser code carries none. Two checks stay on the server, because their values
+come from the network:
+
+- A server function's typed parameters: a request whose arguments don't fit is answered 400 and never
+  reaches the function.
+- A route's typed path parameters: `/notes/abc` doesn't match `/notes/{id: number}`, so it gets a 404.
+
+## Where errors show
+
+- `goal check` checks every file and lists each file's first error; it exits 1 when there are any.
+- `goal build` fails on a type error, like any compile error.
+- `goal dev` and the [Vite plugin](https://goallabs.github.io/goal/vite) show it over the page until it's fixed.
+- The VS Code extension underlines it as you type.
+
+# How it works
+
+1. **Parse.** goal.js reads `.goal` files with acorn, extended for `route` and `{if}`, and rewrites
+   them into plain JavaScript and JSX: a route becomes an async function, and an `if` chain becomes
+   ternaries. A position map sends errors back to the line and column in the `.goal` file.
+2. **Compile.** Each file becomes a server module and, for every interactive component, a client
+   chunk. The compiler finds which `let`s, `const`s and functions depend on state, and marks only the
+   parts of the markup that do: `{...}` holes get comment markers, and attributes get an id. Everything
+   else is plain HTML.
+3. **Render on the server.** A component's root element carries its chunk's URL, its state and the
+   props its browser code reads. The page inlines the loader (about 1 KB gzipped), with the CSP nonce,
+   only if the page has events. A page with no events ships no JavaScript at all.
+4. **Resume in the browser.** The loader listens for the page's events at the document. On the first
+   event in a component, it loads that component's chunk: the component as written,
+   `function Counter(state, props)`, whose `var`s start from the saved state. The loader runs the
+   handlers on the event's path, saves the `var`s they changed, runs the body again, and patches only
+   the bindings whose value changed. If a handler waits for a server function, it patches again when
+   the server answers. The chunk starts loading on intent (pointer over, focus), so it's usually there
+   before the click or the first key.
+
+## Size
+
+`goal build` prints the gzipped size of each client chunk and of the loader. Helpers that several
+components share go in a chunk of their own, and the keyed-list code in another, loaded only by
+components with a keyed list. The code for calling server functions, and for rendering a component
+inside another in the browser, goes only to the components that do it. In the demo app, the
+component chunks are 220 to 1251 B, the shared helpers 980 B, the keyed-list code 1190 B, and the
+loader 1064 B. The files' style blocks are one stylesheet, 327 B there.
+
+## Live updates in goal dev
+
+`goal dev` builds again when a file changes and tells the open pages what changed, over a stream at
+`/_goal/hmr`:
+
+- **A stylesheet:** the page loads it again in place. So does a style block: after a change to
+  one, the page loads the stylesheet of the style blocks again, as well as getting the new code.
+- **Code**, a component's or the server's: the page asks the server for itself again, sending the
+  state each component has now. The server renders the page with that state, and the new body takes
+  the old one's place, keeping the scroll. The focused element keeps the focus, and an input its
+  caret and selection: it's found by its place in its component, so it needs no `id`, unless the
+  change put another kind of element there. The next event runs the new code, because a
+  dev chunk's URL names its build. With PostCSS, the stylesheet loads again too, because Tailwind
+  CSS makes it from the code.
+- **A compile error:** it shows over the page until a build works again.
+
+A page reloads instead when the new code listens for an event type the page doesn't yet, or when the
+state is too big to send. None of this is in `goal build`.
+
+## Debugging
+
+The browser runs the component as you wrote it: the same top level (`var count = …`, your `const`s,
+your functions by name), with only the `var`s starting from the saved state and the markup turned into
+values.
+
+- `goal dev` serves the chunks unminified, with source maps back to the `.goal` files, so the browser's
+  debugger shows your source, and breakpoints and stack traces point at your lines. Server stack
+  traces in `goal dev` point at the `.goal` files too.
+- `goal build` minifies and ships no source maps, so the source stays on the server.
+
+## Editor support
+
+The repository's `editors/vscode` folder has a VS Code extension: highlighting for `.goal` files
+(routes, server functions, `{if}` in markup) and the compiler's errors as you type. Its README says how
+to install it.
+
+# Performance
+
+## js-framework-benchmark
+
+goal.js has a keyed implementation of [js-framework-benchmark](https://github.com/krausest/js-framework-benchmark),
+which passes the benchmark's keyed check. On one Mac, in headless Chrome, with all seven frameworks run
+together on 25 November 2026, the geometric mean of the nine timed operations, as a ratio to vanillajs
+(lower is faster), was:
+
+| Framework | Ratio to vanillajs |
+|---|---|
+| vanillajs | 1.00 |
+| **goal.js 0.1** | **1.07** |
+| solid 1.9.3 | 1.12 |
+| svelte 5.42.1 | 1.16 |
+| vue 3.5.39 | 1.21 |
+| react 19.2 (hooks) | 1.69 |
+| qwik 1.20.2 | 3.60 |
+
+goal.js was faster than vanillajs at removing a row (0.88), creating 10,000 rows (0.97) and selecting
+a row (0.98). Its weakest result was the partial update (1.50). This is one run on one machine; the
+benchmark's official results are run on other hardware.
+
+### goal.js 0.8 against 0.1
+
+Ratios move from run to run with the machine's load, so versions are compared in the same run. On 26
+November 2026, with goal.js 0.1, goal.js 0.8 and vanillajs run together on an Apple M5 at a load
+average of about 2:
+
+| Operation | goal.js 0.1 | goal.js 0.8 |
+|---|---|---|
+| Create 1,000 rows | 1.07 | 1.07 |
+| Replace all rows | 1.07 | 1.08 |
+| Partial update | 1.16 | 1.18 |
+| Select a row | 1.36 | 1.25 |
+| Swap rows | 1.21 | 1.18 |
+| Remove a row | 1.07 | 1.09 |
+| Create 10,000 rows | 1.09 | 1.08 |
+| Append 1,000 rows | 1.08 | 1.07 |
+| Clear rows | 1.47 | 1.22 |
+| **Geometric mean** | **1.17** | **1.13** |
+
+Each figure is the ratio to vanillajs in that run. 0.8 clears and selects rows faster, and the rest is
+the same within the run's noise. Its JavaScript is 4.0 kB compressed (3.3 kB in 0.1), for the features
+added since: types, components rendered in the browser, scoped styles.
+
+## A 100,000-row virtual list
+
+The repository's `examples/virtual` is a virtual list of 100,000 rows whose structure differs from row
+to row: a badge that comes and goes, tags of any length, a meter. Only the rows in view, and a few
+around them, are in the page. In the same headless Chrome:
+
+| Operation | goal.js's script, per operation | Event to patched DOM, median (p95) |
+|---|---|---|
+| Scroll by 3 rows | 0.066 ms | 0.6 ms (0.8 ms) |
+| Jump to a random place, replacing every row | 0.062 ms | 1.3 ms (1.6 ms) |
+| Update every row's values and some rows' structure | 0.064 ms | 1.0 ms (1.3 ms) |
+
+These are goal.js 0.8 on 26 November 2026, the median of three runs, each within 5% of the others.
+goal.js's own script is a few hundredths of a millisecond per operation; the rest of the time is
+Chrome's style and layout. Against goal.js 0.1 in the same rounds, the script is about 10% more per
+operation (0.056 to 0.062 ms there) and the whole operation the same within noise.
+
+Over the memory cycles of 200 jumps, 12 updates and 300 scroll steps each, the JS heap stays at about
+0.93 MB after a garbage collection, with the same 291 DOM nodes and 5 event listeners every time: no
+memory leak.
+
+## Measuring it yourself
+
+In a clone of the repository:
+
+```bash
+npm install
+npm run bench:virtual             # about 3 to 4 minutes
+npm run bench:virtual -- --quick  # under a minute
+```
+
+It builds `examples/virtual`, serves it, and drives headless Chrome over the DevTools protocol, with no
+extra dependency. For scroll steps, random jumps and updates it reports the time from the event to the
+patched DOM and the main thread's CPU time per operation: script, style, layout and all tasks. CPU
+time leaves out what other programs on the machine take, though a busy machine still slows Chrome
+down: compare versions in the same session, one after the other, and more than once. For memory it repeats all three in cycles and
+compares the JS heap, DOM nodes and event listeners after a garbage collection: growth from cycle to
+cycle is a leak.
+
+- `--cycles 12` runs more memory cycles.
+- `--json results.json` also saves the numbers.
+- `CHROME=/path/to/chrome` sets the browser if it isn't in `/Applications`.
+
+# Vite
+
+To work on a goal.js app inside Vite's dev server, add the plugin:
+
+```js
+// vite.config.js
+import { goal } from 'goaljs/vite';
+
+export default {
+  plugins: [goal()],
+};
+```
+
+```bash
+npx vite
+```
+
+The app works as it does under `goal dev`:
+
+- Vite serves its own modules and the `public/` folder. Every other request goes to the app's routes
+  and server functions, with error details and all the [security defaults](https://goallabs.github.io/goal/security).
+- Each component's browser code is a Vite module, and so is the code a component renders other
+  components from. The `.goal` files themselves are never served: their server code stays on the
+  server.
+- [Live updates](https://goallabs.github.io/goal/how-it-works#live-updates-in-goal-dev) work the same way. A stylesheet change
+  applies in place, a code change updates the page with each component's state kept, and a compile
+  error shows over the page.
+- With a `postcss.config.js`, the stylesheets in `public/` go through PostCSS, as they do in
+  `goal dev`, and the app's `.env` is read into `process.env` (see [Tools](https://goallabs.github.io/goal/tools)).
+- The files' [style blocks](https://goallabs.github.io/goal/components#styles) are one stylesheet, `/_goal/style.css`, which each
+  page links.
+- [Vitest](https://goallabs.github.io/goal/tools) uses the plugin too, so tests can import `.goal` files.
+
+The plugin is for development. For production, build and serve the app with `goal build` and
+`goal start`.
+
+## Options
+
+`goal({ config })` takes what `goal.config.js` would hold, such as `{ csrf: false }` or a CSP of your
+own. See [Security](https://goallabs.github.io/goal/security).
+
+# Tools
+
+`goal add` sets a tool up in an app: it installs the packages with npm and writes the config and glue
+the tool needs, so it works with `.goal` files from the first run.
+
+```bash
+npx goal add tailwindcss          # in the app's folder
+npx goal add prisma my-app        # or name the folder
+npx goal add                      # lists the tools
+```
+
+| Tool | `goal add` | What you get |
+| --- | --- | --- |
+| [Tailwind CSS](https://tailwindcss.com/docs) | `tailwindcss` (4 or 3) | Classes from your `.goal` files compiled into `/style.css` |
+| [PostCSS](https://postcss.org) | `postcss` | The stylesheets in `public/` run through PostCSS plugins, autoprefixer first |
+| [Prisma](https://www.prisma.io/docs/orm) | `prisma` | SQLite, a schema with a `Note` model, and `db.js` for server code |
+| [Drizzle](https://orm.drizzle.team/docs/overview) | `drizzle` | SQLite, a `notes` table in `db/schema.js`, and `db/index.js` for server code |
+| [ESLint](https://eslint.org/docs/latest/) | `eslint` | `npm run lint` for `.js` and `.goal` files |
+| [Prettier](https://prettier.io/docs/) | `prettier` | `npm run format` for `.js`, `.css`, `.json` and `.md` files |
+| [Vitest](https://vitest.dev/guide/) | `vitest` | `npm test`, with tests that import `.goal` files |
+| [Playwright](https://playwright.dev/docs/intro) | `playwright` | `npm run test:e2e`: Chromium against the built app |
+| [Sentry](https://docs.sentry.io/platforms/javascript/guides/node/) | `sentry` | Errors from routes and server functions reported to Sentry |
+
+When it's done, `goal add` says what it did and what to do next:
+
+```
+tailwindcss: the recipe for tailwindcss 4
+  $ npm install --save-dev tailwindcss@4.3.5 @tailwindcss/postcss@4.3.5 postcss@8.5.33
+  created postcss.config.js
+  added to public/style.css: @import "tailwindcss" source("..");
+  added to .gitignore: node_modules, dist
+Next:
+  - Link the stylesheet from your pages: <link rel="stylesheet" href="/style.css" />
+  ...
+```
+
+## What it changes
+
+- **Nothing of yours is overwritten.** A file that's already there is kept, and `goal add` prints the
+  recipe's version of it, so you can merge the two. A line a file already has, such as `dist` in
+  `.gitignore` or `DATABASE_URL=` in `.env`, isn't added again. A script that's already in
+  `package.json` is kept, except the placeholder `test` script that `npm init` writes.
+- **Packages you have stay as they are.** The version you have also picks the recipe: an app on
+  Tailwind CSS 3 gets the setup for 3. To ask for one, name it: `goal add tailwindcss@3`.
+- **Each recipe installs the versions it was tested with.** npm saves them as `^` ranges, as it always
+  does.
+- **`package.json` gets `"type": "module"`.** Tools load their config files as ES modules, the way
+  goal.js writes them. (`goal build` marks its own output as ES modules either way.)
+
+## Notes on each tool
+
+**Tailwind CSS and PostCSS.** When an app has a `postcss.config.js`, `goal dev` and `goal build` run
+every stylesheet in `public/` through it, and the stylesheet of the files'
+[style blocks](https://goallabs.github.io/goal/components#styles) too, and so does the [Vite plugin](https://goallabs.github.io/goal/vite). PostCSS and its plugins
+come from the app's own `node_modules`. Tailwind CSS finds its classes in your `.goal` files. In
+`goal dev`, a class you add to a `.goal` file is styled as soon as you save it, without a reload.
+
+**Prisma and Drizzle.** Both use SQLite, with the database file named in `.env`. `goal dev`,
+`goal start` and the Vite plugin read the app's `.env` into `process.env`, and a variable that's
+already set in the environment wins. The database is used from server code only: a route or a
+server function, where `await` is allowed.
+
+```jsx
+import { db } from './db.js';
+
+export server function addNote(text) {
+  await db.note.create({ data: { text } });
+  return db.note.findMany();
+}
+```
+
+**ESLint.** `goaljs/eslint` lets ESLint read `.goal` files. Each problem is reported at its place in
+the `.goal` file, and `eslint --fix` fixes them there.
+
+**Prettier.** Prettier doesn't format `.goal` files yet, so it leaves them alone.
+
+**Vitest.** Tests import components and server functions from `.goal` files, through goal.js's
+[Vite plugin](https://goallabs.github.io/goal/vite). A component called as a function renders its HTML:
+
+```js
+import { test, expect } from 'vitest';
+import { Counter } from './Counter.goal';
+
+test('Counter renders its start', () => {
+  expect(String(Counter({ start: 41 }))).toContain('41');
+});
+```
+
+**Playwright.** The tests run against the app as `goal build` and `goal start` serve it, with all the
+[security headers](https://goallabs.github.io/goal/security). The example test fails on any console error, which includes a script
+or style the Content-Security-Policy blocks.
+
+**Sentry.** `goal.config.js` gets an `onError` hook (see [Security](https://goallabs.github.io/goal/security#errors)) that reports each
+error to Sentry. Nothing is sent until `SENTRY_DSN` is set in `.env` or the environment.
+
+## Recipes
+
+Each tool's setup is a recipe: a file in the repository's
+[recipes/](https://github.com/goallabs/goal/tree/main/recipes) folder, with one entry for each range
+of the tool's versions. When a tool releases a version that needs a different setup, a pull request
+adds an entry for it, and the tool's maintainers are welcome to send it. The folder's README covers
+writing and testing a recipe.

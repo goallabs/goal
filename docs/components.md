@@ -108,7 +108,8 @@ export function Panel() {
 - When the props a child gets read state, the child is rendered again in the browser when they change.
   It keeps its own state, so the second `Counter` above shows the new `start` and keeps its count.
 - A component in a `{...}` hole starts from its props when it appears, and keeps its state while it
-  stays.
+  stays. Each one keeps its own, even next to others of its kind. In a keyed list's rows, each keeps
+  its state by its row's key, so the components of a row that moves move with it.
 - A child without state or handlers ships no code of its own: its parent renders it again.
 
 To render a child in the browser, the parent's code includes the child's template, and the module code

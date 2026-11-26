@@ -341,6 +341,100 @@ describe('components rendered in the browser', () => {
   });
 });
 
+describe('components rendered in the browser, keeping state by place and by key', () => {
+  const COUNT = `export function Counter({ id }) {
+      var count = 0;
+      return <p id={id}><b>{count}</b><button onclick={() => count++}>+</button></p>;
+    }`;
+  const counts = (d) => [...d.querySelectorAll('p[id]')].map((p) => `${p.id}=${p.querySelector('b').textContent}`).join(' ');
+
+  it('each of two of the same kind in one hole keeps its own', async () => {
+    const { d, fire } = await mount(
+      `export function Page() {
+        var n = 0;
+        return <main><button id="more" onclick={() => n++}>{n}</button>{if (n >= 0) <div><Counter id="a" /><Counter id="b" /></div>}</main>;
+      }
+      ${COUNT}`,
+      'Page',
+    );
+    fire('#b button', 'click');
+    await vi.waitFor(() => expect(counts(d)).toBe('a=0 b=1'));
+    fire('#more', 'click');
+    await vi.waitFor(() => expect(d.querySelector('#more').textContent).toBe('1'));
+    expect(counts(d)).toBe('a=0 b=1');
+  });
+
+  it("each in a keyed list's row keeps its own when the rows move, and a new row's starts as written", async () => {
+    const { d, fire } = await mount(
+      `export function Page() {
+        var items = [{ id: 1 }, { id: 2 }, { id: 3 }];
+        return (
+          <main>
+            <button id="rev" onclick={() => (items = [...items].reverse())}>r</button>
+            <button id="add" onclick={() => (items = [{ id: 9 }, ...items.slice(1)])}>a</button>
+            {if (items.length) <ul>{items.map((x) => <li key={x.id}><Counter id={'c' + x.id} /></li>)}</ul>}
+            {if (items.length) <Counter id="after" />}
+          </main>
+        );
+      }
+      ${COUNT}`,
+      'Page',
+    );
+    fire('#c1 button', 'click');
+    fire('#c3 button', 'click');
+    fire('#c3 button', 'click');
+    fire('#after button', 'click');
+    await vi.waitFor(() => expect(counts(d)).toBe('c1=1 c2=0 c3=2 after=1'));
+    fire('#rev', 'click');
+    await vi.waitFor(() => expect(counts(d)).toBe('c3=2 c2=0 c1=1 after=1'));
+    fire('#add', 'click'); // c3's row goes, 9's is new
+    await vi.waitFor(() => expect(counts(d)).toBe('c9=0 c2=0 c1=1 after=1'));
+  });
+
+  it("inside a component that is itself in a keyed row, by place in that component's hole", async () => {
+    const { d, fire } = await mount(
+      `export function Page() {
+        var items = ['m', 'n'];
+        return <main>{if (items.length) <ul>{items.map((x) => <li key={x}><Box id={x} /></li>)}</ul>}</main>;
+      }
+      export function Box({ id }) {
+        var open = 0;
+        return <div><button id={id + 'open'} onclick={() => open++}>{open}</button>{if (open >= 0) <span><Counter id={id + 'x'} /><Counter id={id + 'y'} /></span>}</div>;
+      }
+      ${COUNT}`,
+      'Page',
+    );
+    fire('#ny button', 'click');
+    await vi.waitFor(() => expect(counts(d)).toBe('mx=0 my=0 nx=0 ny=1'));
+    fire('#nopen', 'click');
+    await vi.waitFor(() => expect(d.querySelector('#nopen').textContent).toBe('1'));
+    expect(counts(d)).toBe('mx=0 my=0 nx=0 ny=1');
+  });
+
+  it('in nested keyed lists, by the key of each row on the way', async () => {
+    const { d, fire } = await mount(
+      `export function Page() {
+        var groups = [{ id: 'a', items: [1, 2] }, { id: 'b', items: [1, 2] }];
+        return (
+          <main>
+            <button id="rev" onclick={() => (groups = [...groups].reverse())}>r</button>
+            <button id="flip" onclick={() => (groups = groups.map((g) => ({ ...g, items: [...g.items].reverse() })))}>f</button>
+            {if (groups.length) <div>{groups.map((g) => <section key={g.id}>{g.items.map((i) => <div key={i}><Counter id={g.id + i} /></div>)}</section>)}</div>}
+          </main>
+        );
+      }
+      ${COUNT}`,
+      'Page',
+    );
+    fire('#b2 button', 'click');
+    await vi.waitFor(() => expect(counts(d)).toBe('a1=0 a2=0 b1=0 b2=1'));
+    fire('#rev', 'click');
+    await vi.waitFor(() => expect(counts(d)).toBe('b1=0 b2=1 a1=0 a2=0'));
+    fire('#flip', 'click'); // the rows inside each row move too
+    await vi.waitFor(() => expect(counts(d)).toBe('b2=1 b1=0 a2=0 a1=0'));
+  });
+});
+
 describe('children', () => {
   it("run the parent's handlers and show its state, inside the child, rendered there or in the browser", async () => {
     const { $, fire } = await mount(

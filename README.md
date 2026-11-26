@@ -52,6 +52,8 @@ also cover [routes](https://goallabs.github.io/goal/routes),
 [performance](https://goallabs.github.io/goal/performance), working in
 [Vite](https://goallabs.github.io/goal/vite), and [tools](https://goallabs.github.io/goal/tools):
 `goal add` sets up Tailwind CSS, Prisma, Drizzle, ESLint, Prettier, Vitest, Playwright and Sentry.
+For AI assistants, [llms.txt](https://goallabs.github.io/goal/llms.txt) sums goal.js up, and
+[llms-full.txt](https://goallabs.github.io/goal/llms-full.txt) has all the docs in one file.
 
 ## Working on goal.js
 

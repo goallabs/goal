@@ -11,7 +11,7 @@ A compiled JavaScript framework where **`var` is state** and **`let`/`const` are
 
 - **Server-rendered and resumable.** Pages are rendered on the server, and the browser resumes them
   instead of hydrating: no component code runs at load.
-- **Small.** Each component's code loads on its first event, in a chunk of its own: 270 to 560 B
+- **Small.** Each component's code loads on its first event, in a chunk of its own: 220 B to 1.3 kB
   gzipped in the demo app. A page with no events ships no JavaScript at all.
 - **No `async`, no `fetch`.** Components reach the server through [server functions](server-functions),
   called like plain functions.
@@ -57,6 +57,9 @@ export function Counter({ start }) {
 - [Vite](vite): working on an app inside Vite's dev server.
 - [Tools](tools): `goal add` sets up Tailwind CSS, Prisma, Drizzle, ESLint, Prettier, Vitest,
   Playwright and Sentry.
+- For AI assistants: [llms.txt](https://goallabs.github.io/goal/llms.txt), a summary of goal.js with a
+  link to each page, and [llms-full.txt](https://goallabs.github.io/goal/llms-full.txt), all the docs
+  in one file.
 
 ## Status
 

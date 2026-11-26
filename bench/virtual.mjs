@@ -3,7 +3,9 @@
 // Measures examples/virtual, a virtual list of 100,000 rows whose structure differs from row to row,
 // in headless Chrome:
 //   speed:  for small scroll steps, random jumps and updates, how long goal.js takes from the event
-//           to the patched DOM, and the CPU Chrome spends per operation (script, style, layout);
+//           to the patched DOM, and the CPU time Chrome's main thread spends per operation (script,
+//           style, layout, all tasks). That's measured in thread time, not on the clock, so other
+//           programs busy on the machine don't count;
 //   memory: repeated cycles of all three, with a garbage collection after each, watching the JS heap,
 //           the DOM nodes and the event listeners. A leak shows as growth from cycle to cycle.
 //
@@ -216,7 +218,8 @@ async function main() {
   const { cdp } = chrome;
   const problems = [];
   try {
-    await Promise.all(['Page.enable', 'Runtime.enable', 'Log.enable', 'Performance.enable', 'HeapProfiler.enable'].map((m) => cdp.send(m)));
+    await Promise.all(['Page.enable', 'Runtime.enable', 'Log.enable', 'HeapProfiler.enable'].map((m) => cdp.send(m)));
+    await cdp.send('Performance.enable', { timeDomain: 'threadTicks' }); // durations in the main thread's CPU time
     cdp.on('Runtime.exceptionThrown', (p) => problems.push(p.exceptionDetails.exception?.description ?? p.exceptionDetails.text));
     cdp.on('Runtime.consoleAPICalled', (p) => p.type === 'error' && problems.push(p.args.map((a) => a.value ?? a.description).join(' ')));
     cdp.on('Log.entryAdded', (p) => p.entry.level === 'error' && !p.entry.url?.endsWith('/favicon.ico') && problems.push(`${p.entry.text}${p.entry.url ? ` (${p.entry.url})` : ''}`));
@@ -262,7 +265,7 @@ async function main() {
       const times = await run(ops);
       const after = await metrics();
       const per = (k) => ((after[k] - before[k]) * 1000) / ops.length;
-      phases.push({ name, patch: stats(times), cpu: { style: per('RecalcStyleDuration'), layout: per('LayoutDuration'), task: per('TaskDuration') } });
+      phases.push({ name, patch: stats(times), cpu: { script: per('ScriptDuration'), style: per('RecalcStyleDuration'), layout: per('LayoutDuration'), task: per('TaskDuration') } });
       if (ops.at(-1) >= 0) y = ops.at(-1);
     }
 
@@ -283,11 +286,11 @@ async function main() {
     console.log(`goal.js virtual list: ${COUNT.toLocaleString('en')} rows, ${chrome.version}, headless${QUICK ? ', quick run' : ''}\n`);
     console.log(`Page: ${kb(page.html)} of HTML, first contentful paint ${page.paint == null ? 'not reported' : `${ms(page.paint)} ms`}, ${atLoad.Nodes} DOM nodes`);
     console.log(`First scroll: ${ms1(firstPatch)} ms to the patch, loading ${js.map((r) => r.url).join(' + ')} (${kb(total)} gzipped, loader inline)\n`);
-    console.log('                       event to patched DOM (ms)       main thread per operation (ms)');
-    console.log('operation      count   median    p95      max          style   layout   all tasks');
+    console.log('                       event to patched DOM (ms)       main thread CPU per operation (ms)');
+    console.log('operation      count   median    p95      max          script   style   layout   all tasks');
     for (const p of phases)
       console.log(
-        `${p.name.padEnd(13)}${String(p.patch.count).padStart(6)}   ${ms1(p.patch.median).padStart(6)}  ${ms1(p.patch.p95).padStart(6)}  ${ms1(p.patch.max).padStart(7)}        ${ms(p.cpu.style).padStart(5)}  ${ms(p.cpu.layout).padStart(7)}   ${ms(p.cpu.task).padStart(9)}`,
+        `${p.name.padEnd(13)}${String(p.patch.count).padStart(6)}   ${ms1(p.patch.median).padStart(6)}  ${ms1(p.patch.p95).padStart(6)}  ${ms1(p.patch.max).padStart(7)}         ${ms(p.cpu.script).padStart(5)}   ${ms(p.cpu.style).padStart(5)}  ${ms(p.cpu.layout).padStart(7)}   ${ms(p.cpu.task).padStart(9)}`,
       );
     console.log(`\nMemory after a garbage collection, each cycle ${Math.round(SIZES.jumps / 2)} jumps, ${UPDATES} updates and ${Math.round(SIZES.steps / 2)} scroll steps, ending at the top:`);
     console.log('cycle   JS heap      DOM nodes   listeners');

@@ -30,23 +30,45 @@ export const _$ctx = (t = '') => ({
  */
 export const _$B = {
   i: 1e6,
-  r: null, // the component running now: the loader sets it before each run
+  s: null,
+  c: {}, // this run's contexts, by hole and row: the components there share one, and take its states in turn
+  /** The component running now: the loader sets it before each run, which starts with fresh contexts. */
+  get r() {
+    return this.s;
+  },
+  set r(v) {
+    this.s = v;
+    this.c = {};
+  },
   /**
-   * The context for the components rendered in hole `n` of the component running now. Each one
-   * keeps the state of the component in its place, if it is the same (see keptState in compiler.js):
-   * the components in that hole now, in order. One where there was none starts as written.
+   * The context for the components rendered in hole `n` of the component running now, or in the
+   * keyed row with the key path `keys` inside it. Each one keeps the state of the component in its
+   * place, if it is the same (see keptState in compiler.js): the components there now, in order. A
+   * keyed row is found by its key (m-k), so the components of a row that moved keep their own state.
+   * One where there was none starts as written.
    */
-  h(n) {
-    const r = this.r;
+  h(n, keys = []) {
+    const id = JSON.stringify([n, ...keys]);
+    if (this.c[id]) return this.c[id];
+    const r = this.s;
     const d = r.ownerDocument;
     const w = d.createTreeWalker(r, 128);
     let c;
     while ((c = w.nextNode()) && c.data !== `${r.getAttribute('m-i')}.${n}`);
-    const q = [];
-    for (let x = c.nextSibling; x.nodeType !== 8 || x.data !== '/'; x = x.nextSibling)
-      if (x.nodeType === 1) q.push(...(x.hasAttribute('m-c') ? [x] : []), ...x.querySelectorAll('[m-c]'));
+    const top = []; // the hole's elements
+    for (let x = c.nextSibling; x.nodeType !== 8 || x.data !== '/'; x = x.nextSibling) if (x.nodeType === 1) top.push(x);
+    // What matches `q` straight in `at`, the keyed row found so far (the hole itself when null): the
+    // nearest keyed row `near` gives for it is `at` (none inside the hole)
+    let at = null;
+    const find = (q, near) =>
+      (at ? [...at.querySelectorAll(q)] : top.flatMap((t) => [t, ...t.querySelectorAll(q)]).filter((y) => y.matches(q))).filter((y) => {
+        const p = near(y);
+        return at ? p === at : !p || !top.some((t) => t.contains(p));
+      });
+    for (const k of keys) if (!(at = find('[m-k]', (y) => y.parentElement.closest('[m-k]')).find((y) => y.getAttribute('m-k') === String(k)))) break; // a new row: its components start as written
+    const q = keys.length && !at ? [] : find('[m-c]', (y) => y.closest('[m-k]'));
     const b = this;
-    return {
+    return (this.c[id] = {
       get i() {
         return b.i;
       },
@@ -61,7 +83,7 @@ export const _$B = {
         const x = q.splice(0, j + 1).pop();
         return x.$s ?? JSON.parse(x.getAttribute('m-s')); // only a component with state asks
       },
-    };
+    });
   },
 };
 

@@ -29,7 +29,7 @@ nav_order: 8
 components share go in a chunk of their own, and the keyed-list code in another, loaded only by
 components with a keyed list. The code for calling server functions, and for rendering a component
 inside another in the browser, goes only to the components that do it. In the demo app, the
-component chunks are 220 to 1052 B, the shared helpers 980 B, the keyed-list code 1190 B, and the
+component chunks are 220 to 1251 B, the shared helpers 980 B, the keyed-list code 1190 B, and the
 loader 1064 B. The files' style blocks are one stylesheet, 327 B there.
 
 ## Live updates in goal dev

@@ -15,7 +15,8 @@
     "build:demo": "node bin/goal.js build examples/demo",
     "demo": "node bin/goal.js dev examples/demo",
     "bench:virtual": "node bench/virtual.mjs",
-    "test:recipes": "node test/recipes/run.mjs"
+    "test:recipes": "node test/recipes/run.mjs",
+    "docs:llms": "node scripts/llms.mjs"
   },
   "keywords": [
     "framework",

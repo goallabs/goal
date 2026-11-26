@@ -1,0 +1,36 @@
+# goal.js
+
+> goal.js is a compiled JavaScript framework where `var` is state and `let`/`const` are computed. Pages are rendered on the server and resumed in the browser, with no hydration: each component's code loads on its first event, in a small chunk of its own, and a page with no events ships no JavaScript. It is secure by default. The npm package is `goaljs`.
+
+What to know before writing goal.js code:
+
+- Source files are `.goal`: JavaScript with JSX, plus `route METHOD /path/{param} { ... }` blocks at the top level, `{if (a) X else if (b) Y else Z}` in markup, `server function` declarations, an optional `#strict` first line that turns on type checking, and an optional `style { ... }` block of CSS scoped to the file.
+- A component is a top-level function with a capitalised name that ends in `return <element>`: one element, one `return`. It takes one parameter, its props.
+- `var` at the top of a component declares state, one name per `var`. `let` and `const` are computed: worked out again from the state on each run. State changes only in event handlers, by assignment (`count++`, `items = [...items, x]`), never while rendering, and arrays and objects are replaced, not changed in place.
+- These are compile errors: `var` anywhere else in a component; assigning a `const`, an import or a route's path parameter; a handler assigning a prop or a computed value; a component assigning a variable declared at the top of the file.
+- Markup uses HTML names: `onclick`, `oninput`, `onsubmit`, `class`, `for`, `value`, `checked`. There is no `className`, `onClick`, `bind:`, `@`, `:` or `$`. An event handler is a function; a string of code is a compile error. A form with `onsubmit` never reloads the page.
+- Components have no `async`, `await` or `fetch`. To reach the server, export a `server function` and call it from an event handler like a plain function; goal.js sends the request and the page updates when it answers.
+- A route's body runs on the server once per request and may use `await`. Path parameters are plain constants (`id`). `request` has `method`, `path`, `url`, `params`, `query`, `headers`, `cookies`, `form`, `files` and `json`. A route returns markup (a page), `redirect('/path')`, `json(value, status)`, `notFound()`, or nothing (204), and `cookie(name, value, options)` sets a cookie.
+- Lists are `items.map((x) => <li key={x.id}>...</li>)`. With `key`, the list is patched by key.
+- Components can render components, pass `children`, and pass function props that run as the parent's handlers.
+- Security is on by default: every value is escaped, `<script>`, `<style>` and `srcdoc` in markup are compile errors, `javascript:` and `data:` URLs are blocked, every page has a strict Content-Security-Policy with a nonce, and forms and server functions are protected from CSRF. `goal.config.js` turns each one off explicitly.
+- The CLI is `goal dev`, `goal build`, `goal start`, `goal check` and `goal add <tool>`. Static files go in `public/`, and `.env` is read into `process.env`.
+
+## Docs
+
+- [Getting started](https://goallabs.github.io/goal/getting-started): install goal.js, the CLI, a first app, and what goes in an app's folder
+- [Routes](https://goallabs.github.io/goal/routes): `route METHOD /path/{param}`, the request, what a route returns, cookies, forms and file uploads
+- [Components](https://goallabs.github.io/goal/components): state and computed values, markup, `{if}`, lists and keyed lists, components inside components, children, function props, scoped styles, compile errors
+- [Server functions](https://goallabs.github.io/goal/server-functions): calling the server from a component, without `async` or `fetch`
+- [Types](https://goallabs.github.io/goal/types): `#strict` files, checked before the app runs, and runtime checks of what reaches the server
+- [Security](https://goallabs.github.io/goal/security): the defaults, how to change each one in `goal.config.js`, and reporting errors
+- [How it works](https://goallabs.github.io/goal/how-it-works): parse, compile, render and resume; chunk sizes; live updates in `goal dev`; debugging
+- [Vite](https://goallabs.github.io/goal/vite): working on an app inside Vite's dev server, and testing with Vitest
+- [Tools](https://goallabs.github.io/goal/tools): `goal add` for Tailwind CSS, PostCSS, Prisma, Drizzle, ESLint, Prettier, Vitest, Playwright and Sentry
+
+## Optional
+
+- [Performance](https://goallabs.github.io/goal/performance): js-framework-benchmark results, a 100,000-row virtual list, and how to measure
+- [All the docs in one file](https://goallabs.github.io/goal/llms-full.txt): every page above, as Markdown
+- [Source code](https://github.com/goallabs/goal): the compiler, runtime, CLI and VS Code extension
+- [Recipes for goal add](https://github.com/goallabs/goal/tree/main/recipes): how each tool is set up, and how to send a recipe
