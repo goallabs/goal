@@ -4,10 +4,11 @@
 /**
  * Calls a server function from the browser: what a call in an event handler compiles to. The
  * request carries the page's CSRF token and comes from this site, so the server lets it through.
+ * call() (load.js) stops one on its way with `signal`.
  */
-export const _$sf = async (url, args) => {
+export const _$sf = async (url, args, signal) => {
   const token = document.querySelector('meta[name="goal-csrf"]')?.content ?? '';
-  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': token }, body: JSON.stringify(args) });
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': token }, body: JSON.stringify(args), signal });
   if (!res.ok) throw new Error(`server function ${url} failed: ${res.status}`);
   return (await res.json()).v;
 };

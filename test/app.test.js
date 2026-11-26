@@ -5,6 +5,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createApp, serializeCookie, parseCookies, securityHeaders, redirect } from '../src/app.js';
 import { _$m } from '../src/rt.js';
+import { _$lc, _$lw, _$ll } from '../src/load.js';
 import { TMP } from './helpers.js';
 
 const TOKEN = 'a'.repeat(43);
@@ -35,6 +36,21 @@ const routes = [
     path: '/boom',
     handler: () => {
       throw new Error('boom');
+    },
+  },
+  {
+    // A component with a call() that fails, as compiled code renders it: later, with the answer
+    method: 'GET',
+    path: '/later',
+    handler: (r, x) => {
+      const Later = (p, c) => {
+        const v = _$lc(c, async () => {
+          throw new Error('slow fail');
+        }, [], '/_m/x/y');
+        if (_$lw(v)) return _$ll(c, Later, p);
+        return `<p>${v.error}</p>`;
+      };
+      return _$m(`<main>${Later({}, x.ctx)}</main>`);
     },
   },
   { method: 'GET', path: '/kept', handler: (r, x) => x.json(x.ctx.hmr ?? null) },
@@ -200,6 +216,11 @@ describe('routes', () => {
     const u = await start({ config: { onError: (e, r) => seen.push([e.message, r.method, r.path]) } });
     expect((await fetch(u + '/boom')).status).toBe(500);
     await expect.poll(() => seen).toEqual([['boom', 'GET', '/boom']]);
+    // a call() that failed: the page shows it, and onError hears of it
+    const later = await fetch(u + '/later');
+    expect(later.status).toBe(200);
+    expect(await later.text()).toContain('<main><p>server function /_m/x/y failed: 500</p></main>');
+    await expect.poll(() => seen.at(-1)).toEqual(['slow fail', 'GET', '/later']);
     const log = [];
     const fails = await start({
       config: {

@@ -25,7 +25,7 @@ export function boot(d, events, load = (u) => import(u)) {
   // When it renders components in the browser (m._$B, render.js), they look for theirs inside it.
   const run = (m, r) => {
     if (m._$B) m._$B.r = r;
-    const x = m.default(r.$s, r.$p);
+    const x = m.default(r.$s, r.$p, r);
     x[3] = x[2]();
     return x;
   };
@@ -48,11 +48,13 @@ export function boot(d, events, load = (u) => import(u)) {
   };
   // Runs handlers of the component at root r (each call gets its module and run), saves the state
   // they changed and patches it, and again when the calls to server functions they made answer.
-  const act = async (r, calls) => {
+  // `set` is new state from a call() (load.js), put in after the run the page shows.
+  const act = async (r, calls, set) => {
     const m = await get(r);
     r.$s ||= json(r, 'm-s');
     r.$p ||= props(r);
     const x = (r.$x ||= run(m, r));
+    Object.assign(r.$s, set);
     const save = () => {
       const now = x[2]();
       if (!r.$x) {
@@ -95,6 +97,7 @@ export function boot(d, events, load = (u) => import(u)) {
   };
   listen(events);
   d.addEventListener('goal:listen', (e) => listen(e.detail));
+  d.addEventListener('goal:set', (e) => act(e.target, [], e.detail));
 }
 
 /** Updates the bindings whose value changed between `a` and `b`. */

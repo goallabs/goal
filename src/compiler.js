@@ -43,9 +43,9 @@ const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input'
 const UNSEEN = new Set(['head', 'title', 'meta', 'link', 'base']); // never shown, so a style block's scope leaves them out
 // Where each helper is. rt.js has what nearly every component needs; the others are files of their
 // own next to it, so the browser loads them only for components that use them (the bundler splits
-// by file): render.js for rendering components, call.js for server function calls, keyed.js for
-// keyed lists, which only browser code imports.
-const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], keyed: ['_$L'] };
+// by file): render.js for rendering components, call.js for server function calls, load.js for
+// call(), and keyed.js for keyed lists, which only browser code imports.
+const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], load: ['_$lc', '_$lw', '_$ll', '_$lb'], keyed: ['_$L'] };
 const ROUTE_HELPERS = ['redirect', 'json', 'notFound', 'cookie'];
 const FORM_METHODS = ['get', 'post', 'put', 'patch', 'delete'];
 
@@ -190,6 +190,7 @@ function transform(ast, mode, o, routes) {
   for (const r of routeFns) if (mode === 'client') r.remove();
   const comps = componentPaths(program);
   for (const fn of comps) clientRules(fn);
+  callVars(program, comps, o);
   serverCalls(program, comps, o);
   const components = comps.map((fn) => component(fn, program, mode, o));
   if (mode === 'server') for (const r of routeFns) route(r, byName.get(r.node.id.name), program);
@@ -255,6 +256,67 @@ function clientRules(comp) {
         fail('call a server function instead of fetch: server function load() { ... } in a .goal file', p.node);
     },
   });
+}
+
+// call(): `var notes = call(listNotes(filter))` at the top of a component. The server function runs
+// as the component renders: on the server before the page is sent, and in the browser again when its
+// arguments change or on notes.reload() (load.js). The var is state, { value, loading, error }. Here
+// the call becomes _$lq(url, fn, [args]), which component() turns into each mode's code, so
+// serverCalls doesn't see a server function called while rendering.
+const LQ = '_$lq';
+const isLq = (n) => t.isCallExpression(n) && t.isIdentifier(n.callee, { name: LQ });
+
+function callVars(program, comps, o) {
+  program.traverse({
+    CallExpression(p) {
+      if (!t.isIdentifier(p.node.callee, { name: 'call' }) || p.scope.hasBinding('call')) return;
+      const d = p.parentPath;
+      const fn = p.getFunctionParent();
+      if (!(d.isVariableDeclarator() && d.parent.kind === 'var' && t.isIdentifier(d.node.id) && comps.some((c) => c.node === fn?.node && d.parentPath.parent === c.node.body)))
+        fail('call() goes at the top of a component, as state: var notes = call(load(id))', p.node);
+      const [a] = p.get('arguments');
+      const name = a?.node.callee?.name;
+      if (p.node.arguments.length !== 1 || !a.isCallExpression() || !o.sfns.has(name) || a.scope.getBinding(name)?.scope !== program.scope)
+        fail('call() takes a call to a server function: var notes = call(load(id))', p.node);
+      const v = d.node.id.name;
+      const change = p.scope.getBinding(v).constantViolations[0];
+      if (change) fail(`\`${v}\` holds a call(): run it again with ${v}.reload(), or set ${v}.value`, change.node);
+      p.replaceWith(t.callExpression(t.identifier(LQ), [t.stringLiteral(o.sfns.get(name)), a.node.callee, t.arrayExpression(a.node.arguments)]));
+    },
+  });
+}
+
+/**
+ * The server's code for a component's call() vars: each starts its server function, or takes its
+ * answer, and while any is still on its way the component renders later (_$lw, _$ll in load.js).
+ * A call whose arguments read an earlier call's var waits for it. In the browser's render module
+ * each starts its request instead, unless the component in its place had the same call (`kept`).
+ */
+function serverCallVars(fn, cx, calls, kept, o, name) {
+  const wait = (names) =>
+    t.ifStatement(
+      t.callExpression(t.identifier('_$lw'), names.map((n) => t.identifier(n))),
+      t.returnStatement(t.callExpression(t.identifier('_$ll'), [cx.cId, t.identifier(name), t.identifier('_$p')])),
+    );
+  let open = [];
+  let last;
+  for (const n of calls) {
+    const decl = fn.scope.getBinding(n).path;
+    const [url, f, args] = decl.node.init.arguments;
+    const prev = kept ? t.logicalExpression('&&', t.identifier('_$o'), t.memberExpression(t.identifier('_$o'), t.identifier(n))) : t.identifier('undefined');
+    last = decl.parentPath;
+    if (o.render) {
+      decl.node.init = t.callExpression(t.identifier('_$lb'), [prev, url, args, cx.iId, t.stringLiteral(n)]);
+      continue;
+    }
+    if (open.length && uses(decl.get('init'), fn.scope, new Set(open))) {
+      last.insertBefore(wait(open));
+      open = [];
+    }
+    decl.node.init = t.callExpression(t.identifier('_$lc'), [cx.cId, f, args, url, ...(kept ? [prev] : [])]);
+    open.push(n);
+  }
+  if (open.length) last.insertAfter(wait(open));
 }
 
 function serverCalls(program, comps, o) {
@@ -330,6 +392,7 @@ const shorthand = (n) => t.objectProperty(t.identifier(n), t.identifier(n), fals
 function component(fn, program, mode, o) {
   const name = fn.node.id.name;
   const { state, reactive, withHandlers } = analyze(fn);
+  const calls = state.filter((n) => isLq(fn.scope.getBinding(n).path.node.init));
   const cx = {
     kind: 'component',
     scope: fn.scope,
@@ -361,7 +424,7 @@ function component(fn, program, mode, o) {
   const events = [...cx.events];
   const param = fn.node.params[0];
   const keys = t.arrayExpression([]); // the props the browser needs, filled in from the client module
-  const info = { name, interactive, events, state, binds: cx.binds, hs: cx.hs, param, keys, dyn: cx.dyn, offset: cx.offset, tpls: cx.tpls, cache: cx.cache, b: !!cx.b };
+  const info = { name, interactive, events, state, calls, binds: cx.binds, hs: cx.hs, param, keys, dyn: cx.dyn, offset: cx.offset, tpls: cx.tpls, cache: cx.cache, b: !!cx.b };
   program.pushContainer('body', cx.tpls);
 
   if (mode === 'server') {
@@ -371,7 +434,9 @@ function component(fn, program, mode, o) {
     const pre = [];
     if (param) pre.push(t.variableDeclaration('let', [t.variableDeclarator(patternOf(param), pId)]));
     pre.push(t.variableDeclaration('const', [t.variableDeclarator(cx.iId, t.updateExpression('++', t.memberExpression(cx.cId, t.identifier('i'))))]));
-    if ((o.dev || o.render) && interactive && state.length) pre.push(keptState(fn, cx, o.chunk(name).split('?')[0], state));
+    const kept = (o.dev || o.render) && interactive && state.length > 0;
+    if (kept) pre.push(keptState(fn, cx, o.chunk(name).split('?')[0], state.filter((n) => !calls.includes(n))));
+    if (calls.length) serverCallVars(fn, cx, calls, kept, o, name);
     if (events.length) pre.push(t.expressionStatement(t.callExpression(t.memberExpression(cx.cId, t.identifier('e')), [t.valueToNode(events)])));
     if (cx.dyn) {
       // The server only numbers the handlers made while rendering; the browser keeps them.
@@ -996,7 +1061,7 @@ function template(parts) {
 
 /** The helpers' imports: from each file, all of them (the browser's modules drop those they don't use). */
 function importHelpers(o, browser) {
-  const from = { rt: o.rt, render: beside(o.rt, 'render'), call: beside(o.rt, 'call'), keyed: o.keyed };
+  const from = { rt: o.rt, render: beside(o.rt, 'render'), call: beside(o.rt, 'call'), load: beside(o.rt, 'load'), keyed: o.keyed };
   return Object.entries(HELPERS)
     .filter(([f]) => browser || f !== 'keyed')
     .map(([f, names]) => t.importDeclaration(names.map((h) => t.importSpecifier(t.identifier(h), t.identifier(h))), t.stringLiteral(from[f])));
@@ -1074,7 +1139,17 @@ function clientComponent(fn, info) {
     if (!t.isVariableDeclaration(st) || st.kind !== 'var') return st;
     const decl = t.variableDeclaration(
       'var',
-      st.declarations.map((d) => Object.assign(t.variableDeclarator(d.id, t.memberExpression(s, t.identifier(d.id.name))), { loc: d.loc })),
+      st.declarations.map((d) => {
+        const kept = t.memberExpression(s, t.identifier(d.id.name));
+        // A call() var: its state, or a new request when its arguments changed (_$lb in load.js)
+        let init = kept;
+        if (isLq(d.init)) {
+          const [url, , args] = d.init.arguments;
+          const i = t.callExpression(t.memberExpression(t.identifier('_$r'), t.identifier('getAttribute')), [t.stringLiteral('m-i')]);
+          init = t.assignmentExpression('=', t.cloneNode(kept), t.callExpression(t.identifier('_$lb'), [kept, url, args, i, t.stringLiteral(d.id.name)]));
+        }
+        return Object.assign(t.variableDeclarator(d.id, init), { loc: d.loc });
+      }),
     );
     decl.loc = st.loc;
     return decl;
@@ -1104,7 +1179,9 @@ function clientComponent(fn, info) {
   const handlers = t.arrayExpression([...info.hs, ...(info.dyn ? [t.spreadElement(t.identifier('_$H'))] : [])]);
   const read = t.arrowFunctionExpression([], t.objectExpression(info.state.map(shorthand)));
   const result = t.arrayExpression([t.arrayExpression(info.binds.map((b) => b.e)), handlers, read]);
-  const f = t.functionDeclaration(t.identifier(info.name), [s, ...(info.param ? [info.param] : [])], t.blockStatement([...pre, ...stmts, t.returnStatement(result)]));
+  // A component with call() vars gets its root too (the loader passes it), to answer to
+  const params = info.calls.length ? [info.param ?? t.identifier('_$p'), t.identifier('_$r')] : info.param ? [info.param] : [];
+  const f = t.functionDeclaration(t.identifier(info.name), [s, ...params], t.blockStatement([...pre, ...stmts, t.returnStatement(result)]));
   f.loc = fn.loc;
   return [
     t.exportNamedDeclaration(

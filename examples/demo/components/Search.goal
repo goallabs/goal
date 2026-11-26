@@ -1,0 +1,35 @@
+// A search on the server, with call(): the component loads its own data. The page arrives with the
+// first answer already in it, and each change of the query asks the server again; an answer that a
+// newer query replaced is dropped. notes.loading, .error, .reload() and .cancel() come with it.
+
+const FRUIT = ['apple', 'apricot', 'banana', 'blackberry', 'blueberry', 'cherry', 'grape', 'lemon', 'lime', 'mango', 'melon', 'orange', 'peach', 'pear', 'plum'];
+
+export server function search(q) {
+  const found = FRUIT.filter((f) => f.includes(String(q).toLowerCase()));
+  return new Promise((ok) => setTimeout(() => ok(found), 400)); // a slow server, to see the loading state
+}
+
+export function Search() {
+  var q = '';
+  var found = call(search(q));
+
+  return (
+    <div class="search">
+      <input value={q} oninput={(e) => (q = e.target.value)} placeholder="Search fruit" />
+      <button type="button" onclick={found.reload}>Reload</button>
+      <button type="button" onclick={found.cancel} disabled={!found.loading}>Cancel</button>
+      <p class={found.loading ? 'dim' : ''}>
+        {if (found.error) found.error
+         else if (!found.value) 'Loading…'
+         else if (found.value.length === 0) 'Nothing found.'
+         else found.value.join(', ')}
+        {if (found.loading) ' (loading)'}
+      </p>
+    </div>
+  );
+}
+
+style {
+  .search input { margin-right: 0.5rem; }
+  .dim { opacity: 0.5; }
+}

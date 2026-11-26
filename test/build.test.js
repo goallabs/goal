@@ -49,6 +49,7 @@ describe('build', () => {
       'server function listNotes  POST /_m/components/Board/listNotes',
       'server function addNote  POST /_m/components/Board/addNote',
       'server function removeNote  POST /_m/components/Board/removeNote',
+      'server function search  POST /_m/components/Search/search',
     ]);
     const urls = r.chunks.map((c) => c.url).sort();
     expect(urls.filter((u) => !u.startsWith('/c/_/chunk-'))).toEqual([
@@ -59,11 +60,12 @@ describe('build', () => {
       '/c/components/Feedback.Feedback.js',
       '/c/components/Feedback.Rating.js',
       '/c/components/Groceries.Groceries.js',
+      '/c/components/Search.Search.js',
       '/c/components/Temperature.Temperature.js',
       '/c/components/Todo.Todo.js',
       '/c/components/Toggle.Toggle.js',
     ]);
-    expect(urls.filter((u) => u.startsWith('/c/_/chunk-'))).toHaveLength(1); // the helpers they share
+    expect(urls.filter((u) => u.startsWith('/c/_/chunk-'))).toHaveLength(2); // the helpers they share, and call.js (Board and Search)
     // A chunk with a keyed list imports the patcher next to it; one whose list has no keys doesn't.
     expect(readFileSync(join(dir, 'dist/client/c/components/Board.Board.js'), 'utf8')).toContain('"../_/keyed.js"');
     expect(readFileSync(join(dir, 'dist/client/c/components/Todo.Todo.js'), 'utf8')).not.toContain('keyed.js');
@@ -75,7 +77,7 @@ describe('build', () => {
     expect(r.loader).toBeGreaterThan(0);
     expect(readFileSync(join(dir, 'dist/server/app.js'), 'utf8')).toContain(`from './components/Counter.js?v=${r.version}'`);
     expect(readFileSync(join(dir, 'dist/server/_routes.js'), 'utf8')).toBe(
-      `import { _$routes as r0 } from './app.js?v=${r.version}';\nimport { _$routes as r1 } from './components/Board.js?v=${r.version}';\nexport default [...r0, ...r1];\nexport const styles = "${r.styles.url}";\n`,
+      `import { _$routes as r0 } from './app.js?v=${r.version}';\nimport { _$routes as r1 } from './components/Board.js?v=${r.version}';\nimport { _$routes as r2 } from './components/Search.js?v=${r.version}';\nexport default [...r0, ...r1, ...r2];\nexport const styles = "${r.styles.url}";\n`,
     );
     expect(existsSync(join(dir, 'dist/public/style.css'))).toBe(true);
     expect(existsSync(join(dir, 'dist/server/notes.txt'))).toBe(false);

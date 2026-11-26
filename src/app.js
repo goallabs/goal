@@ -15,6 +15,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { isHtml } from './rt.js';
 import { _$ctx } from './render.js';
+import { _$lr } from './load.js';
 import { page } from './server.js';
 
 const TYPES = {
@@ -210,6 +211,14 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
     };
     const fail = (status, title) => send(status, HTML, errorPage(title));
     let request;
+    // An error is logged, and goal.config.js's onError hears of it too, say to report it to an error
+    // tracker. It runs after the answer is on its way, and an error of its own is logged.
+    const report = (e) => {
+      log(e);
+      Promise.resolve()
+        .then(() => config.onError?.(e, request))
+        .catch(log);
+    };
 
     try {
       const url = new URL(req.url, 'http://localhost');
@@ -278,18 +287,17 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
       request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, files, json: body };
       const cookie = (name, value, opts) => setCookies.push(serializeCookie(name, value, opts));
       const out = await m.route.handler(request, { ctx, redirect, json, notFound, cookie });
-      if (isHtml(out)) return send(200, HTML, page(out.s, [...ctx.ev], nonce, token, dev, styles));
+      if (isHtml(out)) {
+        const html = await _$lr(ctx, out.s); // components that waited for a call(), with its answer
+        for (const e of ctx.lx ?? []) report(e); // a server function that failed in a call()
+        return send(200, HTML, page(html, [...ctx.ev], nonce, token, dev, styles));
+      }
       if (out === undefined) return send(204);
       if (out?.[REPLY]) return send(out.status, out.type, out.body, out.headers);
       throw new Error('a route returns markup, redirect(), json(), notFound() or nothing');
     } catch (e) {
       if (e.status === 413) return fail(413, 'Too large');
-      log(e);
-      // goal.config.js's onError hears of it too, say to report it to an error tracker. It runs after the
-      // answer is on its way, and an error of its own is logged.
-      Promise.resolve()
-        .then(() => config.onError?.(e, request))
-        .catch(log);
+      report(e);
       return dev ? send(500, 'text/plain; charset=utf-8', String(e.stack)) : fail(500, 'Something went wrong');
     }
   };

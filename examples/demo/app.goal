@@ -7,6 +7,7 @@ import { Feedback } from './components/Feedback.goal';
 import { Groceries } from './components/Groceries.goal';
 import { Temperature } from './components/Temperature.goal';
 import { Escaping } from './components/Escaping.goal';
+import { Search } from './components/Search.goal';
 
 // Each file's style block styles only the markup that file renders. Here: the descriptions this file
 // writes inside each <Card>. The page-wide rules are in public/style.css.
@@ -103,6 +104,10 @@ route GET /examples {
       <Card title="Computed values, type-checked">
         <p>The Fahrenheit value and the label are worked out from the state. The file is #strict.</p>
         <Temperature />
+      </Card>
+      <Card title="Data from the server, as state">
+        <p>call() runs a server function as the component renders: the page came with the first answer, and typing asks again.</p>
+        <Search />
       </Card>
       <Card title="Secure by default">
         <p>What you type is always text, and a javascript: link is blocked.</p>

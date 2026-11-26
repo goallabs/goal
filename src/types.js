@@ -286,6 +286,12 @@ export function check(ast, d, other, fail) {
     if (callee.isIdentifier()) {
       const conv = { Number: 'number', String: 'string', Boolean: 'boolean' }[callee.node.name];
       if (conv && !p.scope.getBinding(callee.node.name)) return T(conv);
+      // call(load(id)): the server function's answer as state (load.js); no value until it answers
+      if (callee.node.name === 'call' && !p.scope.getBinding('call') && args[0]?.isCallExpression()) {
+        const field = (type) => ({ type, optional: false });
+        const run = field({ k: 'fn', params: [], returns: T('undefined') });
+        return { k: 'object', fields: { value: field(union([widen(typeOf(args[0])), T('undefined')])), loading: field(T('boolean')), error: field(union([T('string'), T('null')])), reload: run, cancel: run } };
+      }
     }
     if (callee.isMemberExpression() && !callee.node.computed) {
       const obj = resolve(typeOf(callee.get('object')));
