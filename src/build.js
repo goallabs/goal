@@ -217,7 +217,7 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
  * Serves a built app. `dev` shows error details; `version` names the build to load; `hmr`, the set
  * of pages listening at /_goal/hmr for live updates (goal dev).
  */
-export async function serve(app, { out = join(app, 'dist'), port = 3000, dev = false, version = () => '', log = console.error, hmr } = {}) {
+export async function serve(app, { out = join(app, 'dist'), port = 5648, dev = false, version = () => '', log = console.error, hmr } = {}) {
   if (existsSync(join(app, '.env'))) process.loadEnvFile(join(app, '.env')); // what the environment has already wins
   const configFile = join(out, 'server', 'goal.config.js');
   const config = existsSync(configFile) ? (await import(pathToFileURL(configFile).href)).default : {};
@@ -241,7 +241,7 @@ export async function serve(app, { out = join(app, 'dist'), port = 3000, dev = f
  * live (see hmr.js): after a build they're told that a stylesheet changed, that code did, or what the
  * compile error is.
  */
-export async function dev(app, { port = 3000, log = console.log } = {}) {
+export async function dev(app, { port = 5648, log = console.log } = {}) {
   let version = '';
   const pages = new Set();
   const tell = (m) => {

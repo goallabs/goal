@@ -415,8 +415,8 @@ describe('cli', () => {
     expect(await (await fetch(url)).text()).toContain('<p>hi</p>');
   });
 
-  it('uses the current folder and port 3000 by default, and prints usage', async () => {
-    expect(args(['start'])).toEqual({ cmd: 'start', app: '.', port: 3000 });
+  it('uses the current folder and port 5648 by default, and prints usage', async () => {
+    expect(args(['start'])).toEqual({ cmd: 'start', app: '.', port: 5648 });
     expect(args(['dev', 'site', '--port', '8080'])).toEqual({ cmd: 'dev', app: 'site', port: 8080 });
     const log = [];
     const cwd = process.cwd();
@@ -424,13 +424,13 @@ describe('cli', () => {
     process.chdir(dir);
     try {
       expect(await main(['build'], (m) => log.push(m))).toBe(0);
-      const url = listen(await main(['start', '--port', '0'], (m) => log.push(m))); // any free port: 3000 may be taken
+      const url = listen(await main(['start', '--port', '0'], (m) => log.push(m))); // any free port: 5648 may be taken
       expect(log.at(-1)).toBe(url);
       expect(await (await fetch(url)).text()).toContain('<p>here</p>');
     } finally {
       process.chdir(cwd);
     }
     expect(await main([], (m) => log.push(m))).toBe(1);
-    expect(log.at(-1)).toBe('usage: goal build|start|dev|check [app folder] [--port 3000]\n       goal add [tool] [app folder]');
+    expect(log.at(-1)).toBe('usage: goal build|start|dev|check [app folder] [--port 5648]\n       goal add [tool] [app folder]');
   });
 });

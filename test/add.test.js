@@ -190,8 +190,8 @@ describe('goal add', () => {
   });
 
   it('runs from the command line', async () => {
-    expect(args(['add', 'tool', 'my-app'])).toEqual({ cmd: 'add', app: 'my-app', port: 3000, tool: 'tool' });
-    expect(args(['add'])).toEqual({ cmd: 'add', app: '.', port: 3000, tool: undefined });
+    expect(args(['add', 'tool', 'my-app'])).toEqual({ cmd: 'add', app: 'my-app', port: 5648, tool: 'tool' });
+    expect(args(['add'])).toEqual({ cmd: 'add', app: '.', port: 5648, tool: undefined });
     const log = [];
     expect(await main(['add', 'tool@1', app()], (m) => log.push(m), { dir: RECIPES, run: () => {} })).toBe(0);
     expect(log[0]).toBe('tool: the recipe for tool-core 1');

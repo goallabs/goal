@@ -4,13 +4,13 @@
 import { build, serve, dev, check } from './build.js';
 import { add } from './add.js';
 
-const USAGE = 'usage: goal build|start|dev|check [app folder] [--port 3000]\n       goal add [tool] [app folder]';
+const USAGE = 'usage: goal build|start|dev|check [app folder] [--port 5648]\n       goal add [tool] [app folder]';
 
-/** The command, the app's folder (the current one by default), the port (3000 by default), and goal add's tool. */
+/** The command, the app's folder (the current one by default), the port (5648 by default), and goal add's tool. */
 export function args(argv) {
   const [cmd, ...rest] = argv;
   const i = rest.indexOf('--port');
-  const port = i < 0 ? 3000 : Number(rest.splice(i, 2)[1]);
+  const port = i < 0 ? 5648 : Number(rest.splice(i, 2)[1]);
   const tool = cmd === 'add' ? rest.shift() : undefined;
   return { cmd, app: rest[0] ?? '.', port, tool };
 }

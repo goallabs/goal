@@ -39,7 +39,7 @@ export function Counter({ start }) {
 
 ```bash
 npm install goaljs
-npx goal dev .        # build the app in this folder, serve it on http://localhost:3000, update live on save
+npx goal dev .        # build the app in this folder, serve it on http://localhost:5648, update live on save
 ```
 
 [Getting started](https://goallabs.github.io/goal/getting-started) walks through a first app. The docs
@@ -59,7 +59,7 @@ For AI assistants, [llms.txt](https://goallabs.github.io/goal/llms.txt) sums goa
 
 ```bash
 npm install
-npm run demo            # builds examples/demo, serves it on http://localhost:3000, updates live on save
+npm run demo            # builds examples/demo, serves it on http://localhost:5648, updates live on save
 npm test                # the tests, with 100% coverage of src/ required
 npm run bench:virtual   # a 100,000-row virtual list in headless Chrome: speed and memory
 npm run test:recipes    # sets up each goal add recipe in a new app, for real, and tests it

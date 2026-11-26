@@ -118,7 +118,7 @@ Then start the development server:
 npx goal dev .
 ```
 
-Open <http://localhost:3000> and click the button. The page was rendered on the server; the
+Open <http://localhost:5648> and click the button. The page was rendered on the server; the
 component's code loaded when you pointed at the button, and the click updated only the number.
 
 Now change `Counter.goal`, say the button's text, and save. The page updates without reloading, and
@@ -130,7 +130,7 @@ the page, with the file, line and column, until you fix it.
 ```bash
 goal dev <app>      # build, serve with error details, update open pages when a file changes
 goal build <app>    # compile into <app>/dist; prints the routes and each chunk's size
-goal start <app>    # serve a built app (--port 3000)
+goal start <app>    # serve a built app (--port 5648)
 goal check <app>    # check every file, types too, and list the errors
 goal add <tool>     # set up Tailwind CSS, Prisma, ESLint, Vitest and more (see Tools)
 ```
