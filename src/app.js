@@ -11,6 +11,7 @@
 //     cookies are HttpOnly, Secure and SameSite=Lax, and errors show no details outside `goal dev`.
 
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { once } from 'node:events';
 import { readFileSync, statSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { isHtml } from './rt.js';
@@ -88,7 +89,35 @@ export function redirect(url, { external = false, status = 303 } = {}) {
   return { [REPLY]: true, status, headers: { location: url } };
 }
 
-export const json = (value, status = 200) => ({ [REPLY]: true, status, type: 'application/json; charset=utf-8', body: JSON.stringify(value) });
+export const json = (value, status = 200, headers) => ({ [REPLY]: true, status, type: 'application/json; charset=utf-8', body: JSON.stringify(value), headers });
+
+/** Any answer: markup as a page, text, or bytes, with a status and headers of its own. */
+export function reply(body, { status = 200, type, headers } = {}) {
+  if (isHtml(body)) return { [REPLY]: true, status, page: body, headers };
+  const bytes = body instanceof Uint8Array;
+  if (!bytes && typeof body !== 'string') throw new TypeError('reply() takes markup, text or bytes: send data with json()');
+  return { [REPLY]: true, status, type: type ?? (bytes ? 'application/octet-stream' : 'text/plain; charset=utf-8'), body, headers };
+}
+
+/** An answer sent as it's made: each piece (text or bytes) an async iterable gives, say an async generator. */
+export const stream = (source, { status = 200, type = 'text/plain; charset=utf-8', headers } = {}) => ({ [REPLY]: true, status, type, headers, stream: source });
+
+/**
+ * Server-sent events, for EventSource: each value the source gives arrives as one message, as JSON.
+ * A comment every `ping` ms (15 s) keeps proxies from closing a quiet connection.
+ */
+export const events = (source, { ping = 15_000, headers } = {}) => ({
+  [REPLY]: true,
+  status: 200,
+  type: 'text/event-stream; charset=utf-8',
+  headers: { 'cache-control': 'no-store', ...headers },
+  stream: messages(source),
+  ping,
+});
+
+async function* messages(source) {
+  for await (const v of source) yield `data: ${JSON.stringify(v ?? null)}\n\n`;
+}
 
 const errorPage = (title) =>
   `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><h1>${title}</h1></body></html>`;
@@ -205,11 +234,32 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
       token = randomBytes(32).toString('base64url');
       setCookies.push(serializeCookie('goal_csrf', token));
     }
-    const send = (status, type, body, extra) => {
+    const send = (status, type, body, extra, open) => {
       res.writeHead(status, { ...headers, ...(type ? { 'content-type': type } : {}), ...(setCookies.length ? { 'set-cookie': setCookies } : {}), ...extra });
-      res.end(req.method === 'HEAD' ? undefined : body);
+      if (!open) res.end(req.method === 'HEAD' ? undefined : body);
     };
     const fail = (status, title) => send(status, HTML, errorPage(title));
+    // request.signal is aborted when the client goes away, so a stream or a slow call can stop
+    const gone = new AbortController();
+    res.on('close', () => gone.abort());
+    // A stream: each piece as it comes, waiting while the client catches up, until the client goes
+    const pipe = async ({ status, type, headers: extra, stream, ping }) => {
+      send(status, type, null, extra, true);
+      if (req.method === 'HEAD') return res.end();
+      const timer = ping && setInterval(() => res.write(':\n\n'), ping);
+      try {
+        for await (const piece of stream) {
+          if (gone.signal.aborted) break;
+          if (!res.write(piece)) await once(res, 'drain', { signal: gone.signal }).catch(() => {});
+        }
+        res.end();
+      } catch (e) {
+        report(e);
+        res.destroy();
+      } finally {
+        clearInterval(timer);
+      }
+    };
     let request;
     // An error is logged, and goal.config.js's onError hears of it too, say to report it to an error
     // tracker. It runs after the answer is on its way, and an error of its own is logged.
@@ -284,17 +334,20 @@ export function createApp(routes, { dev = false, staticDirs = [], config = {}, l
           return j < 0 ? null : kept.splice(0, j + 1).pop().s;
         };
       }
-      request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, files, json: body };
+      request = { method, path: url.pathname, url, params: m.params, query: Object.fromEntries(url.searchParams), headers: req.headers, cookies, form, files, json: body, signal: gone.signal };
       const cookie = (name, value, opts) => setCookies.push(serializeCookie(name, value, opts));
-      const out = await m.route.handler(request, { ctx, redirect, json, notFound, cookie });
+      let out = await m.route.handler(request, { ctx, redirect, json, notFound, cookie, reply, stream, events });
+      let status = 200;
+      let extra;
+      if (out?.[REPLY] && out.page) ({ status, headers: extra, page: out } = out); // reply(markup, { status, headers })
       if (isHtml(out)) {
         const html = await _$lr(ctx, out.s); // components that waited for a call(), with its answer
         for (const e of ctx.lx ?? []) report(e); // a server function that failed in a call()
-        return send(200, HTML, page(html, [...ctx.ev], nonce, token, dev, styles));
+        return send(status, HTML, page(html, [...ctx.ev], nonce, token, dev, styles), extra);
       }
       if (out === undefined) return send(204);
-      if (out?.[REPLY]) return send(out.status, out.type, out.body, out.headers);
-      throw new Error('a route returns markup, redirect(), json(), notFound() or nothing');
+      if (out?.[REPLY]) return out.stream ? await pipe(out) : send(out.status, out.type, out.body, out.headers);
+      throw new Error('a route returns markup, redirect(), json(), reply(), stream(), events(), notFound() or nothing');
     } catch (e) {
       if (e.status === 413) return fail(413, 'Too large');
       report(e);

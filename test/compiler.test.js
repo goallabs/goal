@@ -846,13 +846,13 @@ describe('routes', () => {
     const r = build(`
       import { redirect } from './nav.js';
       route GET / { return redirect('/x'); }`);
-    expect(r.server).toContain('const {\n    json,\n    notFound,\n    cookie\n  } = _$x;');
+    expect(r.server).toContain('const {\n    json,\n    notFound,\n    cookie,\n    reply,\n    stream,\n    events\n  } = _$x;');
     expect(r.server).not.toContain('request.params');
   });
 
   it('skip the helpers when the file has its own of every name', () => {
     const r = build(`
-      import { redirect, json, notFound, cookie } from './h.js';
+      import { redirect, json, notFound, cookie, reply, stream, events } from './h.js';
       route GET / { return json(1); }`);
     expect(r.server).not.toContain('= _$x;');
   });

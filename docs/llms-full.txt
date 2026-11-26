@@ -166,7 +166,8 @@ per request. The body may use `await`.
 - Path parameters are plain variables (`id`, `post`), as strings. They're constants: give a new value
   a name of its own (`const n = Number(id)`).
 - `request` has `method`, `path`, `url`, `params`, `query`, `headers`, `cookies`, `form` (a form's
-  fields), `files` (a form's files) and `json` (a JSON body).
+  fields), `files` (a form's files), `json` (a JSON body) and `signal`, an AbortSignal that's aborted
+  when the client goes away.
 - `cookie(name, value, options)` sets a cookie.
 
 ## What a route returns
@@ -175,9 +176,50 @@ per request. The body may use `await`.
 |---|---|
 | Markup | An HTML page |
 | `redirect('/path')` | 303 to that path, on this site only; `redirect(url, { external: true })` to leave it |
-| `json(value, status)` | JSON |
+| `json(value, status, headers)` | JSON |
+| `reply(body, { status, type, headers })` | Markup as a page, text, or bytes (a Buffer), with any status and headers |
+| `stream(source, { status, type, headers })` | Each piece an async generator gives, sent as it comes |
+| `events(source, { ping, headers })` | Server-sent events: each value the source gives, as JSON |
 | `notFound()` | 404 |
 | Nothing | 204 |
+
+The security headers stay on every answer; a header passed to `reply()` or the others replaces one of
+them only when it has the same name.
+
+## Streams and server-sent events
+
+`stream()` sends a big answer a piece at a time, waiting while the client catches up. It stops when
+the client goes away, and `request.signal` tells a slow source the same:
+
+```jsx
+route GET /export.csv {
+  return stream((async function* () {
+    yield 'id,title\n';
+    for await (const n of notes(request.signal)) yield `${n.id},${n.title}\n`;
+  })(), { type: 'text/csv' });
+}
+```
+
+`events()` answers an `EventSource`. Each value is one message, as JSON, and a comment every `ping`
+milliseconds (15 seconds by default) keeps the connection open through proxies:
+
+```jsx
+route GET /clock {
+  return events((async function* () {
+    while (!request.signal.aborted) {
+      yield { now: Date.now() };
+      await new Promise((ok) => setTimeout(ok, 1000));
+    }
+  })());
+}
+```
+
+```js
+new EventSource('/clock').onmessage = (e) => console.log(JSON.parse(e.data).now);
+```
+
+An error in the middle of a stream is logged and cuts the answer short, since its status is already
+sent.
 
 Markup that starts with `<html>` is the whole document: put `<title>` and
 `<link rel="stylesheet" href="/style.css" />` in its `<head>`. Other markup goes in a plain document.

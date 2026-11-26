@@ -97,7 +97,7 @@ plugin.configs.recommended = [
     files: ['**/*.goal/*.jsx'],
     languageOptions: {
       parserOptions: { ecmaFeatures: { jsx: true } },
-      globals: { redirect: 'readonly', json: 'readonly', notFound: 'readonly', cookie: 'readonly', call: 'readonly' }, // a route's helpers, and a component's call()
+      globals: { redirect: 'readonly', json: 'readonly', notFound: 'readonly', cookie: 'readonly', reply: 'readonly', stream: 'readonly', events: 'readonly', call: 'readonly' }, // a route's helpers, and a component's call()
     },
     rules: { 'no-var': 'off' }, // var is a component's state
   },

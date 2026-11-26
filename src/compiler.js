@@ -46,7 +46,7 @@ const UNSEEN = new Set(['head', 'title', 'meta', 'link', 'base']); // never show
 // by file): render.js for rendering components, call.js for server function calls, load.js for
 // call(), and keyed.js for keyed lists, which only browser code imports.
 const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], load: ['_$lc', '_$lw', '_$ll', '_$lb'], keyed: ['_$L'] };
-const ROUTE_HELPERS = ['redirect', 'json', 'notFound', 'cookie'];
+const ROUTE_HELPERS = ['redirect', 'json', 'notFound', 'cookie', 'reply', 'stream', 'events'];
 const FORM_METHODS = ['get', 'post', 'put', 'patch', 'delete'];
 
 let SRC; // the file being compiled: { source, file }

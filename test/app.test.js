@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { EventEmitter } from 'node:events';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createApp, serializeCookie, parseCookies, securityHeaders, redirect } from '../src/app.js';
+import { createApp, serializeCookie, parseCookies, securityHeaders, redirect, reply } from '../src/app.js';
 import { _$m } from '../src/rt.js';
 import { _$lc, _$lw, _$ll } from '../src/load.js';
 import { TMP } from './helpers.js';
@@ -72,6 +72,86 @@ const routes = [
     },
   },
 ];
+
+// What the streaming routes saw: whether a stream ran to its end, and whether the client had gone
+const streamed = {};
+const big = Buffer.alloc(1 << 16, 'x');
+routes.push(
+  { method: 'GET', path: '/text', handler: (r, x) => x.reply('hi', { status: 418, headers: { 'x-one': '1' } }) },
+  { method: 'GET', path: '/bytes', handler: (r, x) => x.reply(new Uint8Array([1, 2, 3])) },
+  { method: 'GET', path: '/csv', handler: (r, x) => x.reply('a,b', { type: 'text/csv' }) },
+  { method: 'GET', path: '/gone', handler: (r, x) => x.reply(_$m('<main>gone</main>'), { status: 410, headers: { 'x-two': '2' } }) },
+  { method: 'GET', path: '/page', handler: (r, x) => x.reply(_$m('<p>ok</p>')) },
+  { method: 'GET', path: '/wrong', handler: (r, x) => x.reply({ a: 1 }) },
+  { method: 'GET', path: '/made', handler: (r, x) => x.json({ id: 1 }, 201, { location: '/made/1' }) },
+  {
+    method: 'GET',
+    path: '/stream',
+    handler: (r, x) =>
+      x.stream(
+        (async function* () {
+          streamed.started = true;
+          yield 'a';
+          yield Buffer.from('b');
+          yield 'c';
+        })(),
+        { type: 'text/x-letters', headers: { 'x-three': '3' } },
+      ),
+  },
+  {
+    method: 'GET',
+    path: '/huge',
+    handler: (r, x) =>
+      x.stream(
+        (async function* () {
+          for (let i = 0; i < 320; i++) yield big; // 20 MB, more than the socket takes at once
+        })(),
+        { type: 'application/octet-stream' },
+      ),
+  },
+  {
+    method: 'GET',
+    path: '/forever',
+    handler: (r, x) =>
+      x.stream(
+        (async function* () {
+          try {
+            for (;;) yield big;
+          } finally {
+            streamed.stopped = r.signal.aborted;
+          }
+        })(),
+      ),
+  },
+  {
+    method: 'GET',
+    path: '/broken',
+    handler: (r, x) =>
+      x.stream(
+        (async function* () {
+          yield 'part';
+          await new Promise((ok) => setTimeout(ok, 10));
+          throw new Error('stream broke');
+        })(),
+      ),
+  },
+  {
+    method: 'GET',
+    path: '/events',
+    handler: (r, x) =>
+      x.events(
+        (async function* () {
+          yield { n: 1 };
+          yield 'two';
+          yield undefined;
+          await new Promise((ok) => setTimeout(ok, 60));
+          yield 3;
+        })(),
+        { ping: 20 },
+      ),
+  },
+  { method: 'GET', path: '/events-plain', handler: (r, x) => x.events([1], { headers: { 'x-four': '4' } }) },
+);
 
 const dir = join(TMP, `static${process.pid}`);
 const servers = [];
@@ -270,6 +350,72 @@ describe('routes', () => {
   });
 });
 
+describe('answers of any kind', () => {
+  it('reply() sends text or bytes, with a status, a type and headers', async () => {
+    const text = await fetch(url + '/text');
+    expect([text.status, text.headers.get('content-type'), text.headers.get('x-one'), await text.text()]).toEqual([418, 'text/plain; charset=utf-8', '1', 'hi']);
+    expect(text.headers.get('x-frame-options')).toBe('DENY'); // the security headers stay
+    const bytes = await fetch(url + '/bytes');
+    expect([bytes.headers.get('content-type'), [...new Uint8Array(await bytes.arrayBuffer())]]).toEqual(['application/octet-stream', [1, 2, 3]]);
+    expect((await fetch(url + '/csv')).headers.get('content-type')).toBe('text/csv');
+  });
+
+  it('reply() sends markup as a page, with its status and headers', async () => {
+    const gone = await fetch(url + '/gone');
+    expect([gone.status, gone.headers.get('x-two'), gone.headers.get('content-type')]).toEqual([410, '2', 'text/html; charset=utf-8']);
+    expect(await gone.text()).toContain('<main>gone</main>');
+    expect((await fetch(url + '/page')).status).toBe(200);
+  });
+
+  it('reply() refuses anything else, and json() takes headers', async () => {
+    expect(() => reply({ a: 1 })).toThrow('reply() takes markup, text or bytes: send data with json()');
+    expect((await fetch(url + '/wrong')).status).toBe(500);
+    const made = await fetch(url + '/made');
+    expect([made.status, made.headers.get('location'), await made.json()]).toEqual([201, '/made/1', { id: 1 }]);
+  });
+
+  it('stream() sends each piece as it comes, and nothing for HEAD', async () => {
+    const res = await fetch(url + '/stream');
+    expect([res.headers.get('content-type'), res.headers.get('x-three'), await res.text()]).toEqual(['text/x-letters', '3', 'abc']);
+    streamed.started = false;
+    const head = await fetch(url + '/stream', { method: 'HEAD' });
+    expect([head.status, await head.text(), streamed.started]).toEqual([200, '', false]);
+  });
+
+  it('stream() waits while the client catches up', async () => {
+    const res = await fetch(url + '/huge');
+    expect((await res.arrayBuffer()).byteLength).toBe(320 << 16);
+  });
+
+  it('stream() stops when the client goes, and request.signal says so', async () => {
+    const stop = new AbortController();
+    const res = await fetch(url + '/forever', { signal: stop.signal });
+    const reader = res.body.getReader();
+    await reader.read();
+    stop.abort();
+    await vi.waitFor(() => expect(streamed.stopped).toBe(true));
+  });
+
+  it('stream() logs an error it meets, and cuts the answer short', async () => {
+    const log = [];
+    const base = await start({ log: (e) => log.push(e.message) });
+    const res = await fetch(base + '/broken');
+    await expect(res.text()).rejects.toThrow();
+    expect(log).toEqual(['stream broke']);
+  });
+
+  it('events() sends server-sent events as JSON, with pings while quiet', async () => {
+    const res = await fetch(url + '/events');
+    expect([res.headers.get('content-type'), res.headers.get('cache-control')]).toEqual(['text/event-stream; charset=utf-8', 'no-store']);
+    const body = await res.text();
+    expect(body.startsWith('data: {"n":1}\n\ndata: "two"\n\ndata: null\n\n')).toBe(true);
+    expect(body).toContain(':\n\n');
+    expect(body.endsWith('data: 3\n\n')).toBe(true);
+    const plain = await fetch(url + '/events-plain');
+    expect([plain.headers.get('x-four'), await plain.text()]).toEqual(['4', 'data: 1\n\n']);
+  });
+});
+
 describe('requests that change things', () => {
   it('need the CSRF token, from the form or a header', async () => {
     expect((await post('/items', 'a=1')).status).toBe(403);
@@ -340,6 +486,7 @@ describe('without a network', () => {
           Object.assign(res, { status, headers });
         },
         end: (body) => ok({ ...res, body }),
+        on() {},
       };
       createApp(routes, { log: () => {}, ...opts })(req, res);
     });

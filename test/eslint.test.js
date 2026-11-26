@@ -76,7 +76,7 @@ describe('ESLint for .goal files', () => {
     expect(files).toEqual({ files: ['**/*.goal'], plugins: { goal }, processor: 'goal/goal' });
     expect(blocks.files).toEqual(['**/*.goal/*.jsx']);
     expect(blocks.languageOptions.parserOptions.ecmaFeatures.jsx).toBe(true);
-    expect(Object.keys(blocks.languageOptions.globals)).toEqual(['redirect', 'json', 'notFound', 'cookie', 'call']);
+    expect(Object.keys(blocks.languageOptions.globals)).toEqual(['redirect', 'json', 'notFound', 'cookie', 'reply', 'stream', 'events', 'call']);
     expect(blocks.rules['no-var']).toBe('off');
   });
 });
