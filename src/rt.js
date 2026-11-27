@@ -91,6 +91,9 @@ export function _$ok(v, x) {
   }
 }
 
+/** A component's HTML as a list row: its element carries the row's key, as a row element does (m-k). */
+export const _$mk = (html, key) => html.replace(/^<[\w-]+/, (tag) => `${tag} m-k="${_$e(String(key))}"`);
+
 /** The server's rendering of a keyed list (see keyed.js): each row through its template. */
 export const _$hl = (rows, tpl) => rows.map(tpl).join('');
 

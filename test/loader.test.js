@@ -471,6 +471,87 @@ describe('components rendered in the browser, keeping state by place and by key'
   });
 });
 
+describe('components in a keyed list\'s rows', () => {
+  const SRC = `export function Cal() {
+      var days = [{ d: 1 }, { d: 2 }, { d: 3 }];
+      var picked = 1;
+      return (
+        <div>
+          <button id="rev" onclick={() => (days = [...days].reverse())}>r</button>
+          <button id="add" onclick={() => (days = [{ d: 9 }, ...days.slice(1)])}>a</button>
+          <button id="bump" onclick={() => (days = days.map((x) => (x.d === 2 ? { d: 2, big: 1 } : x)))}>b</button>
+          <ul>{days.map((x) => <li key={x.d}><Day d={x.d} big={!!x.big} sel={x.d === picked} kind="day" open fmt={(n) => '#' + n} onpick={(n) => (picked = n)} /></li>)}</ul>
+          <b id="p">{picked}</b>
+        </div>
+      );
+    }
+    export function Day({ d, big, sel, kind, open, fmt, onpick }) {
+      var hits = 0;
+      return <span class={(sel ? 'sel ' : '') + (big ? 'big' : '')} id={'d' + d} title={kind + open}><i onclick={() => hits++}>{hits}</i><a onclick={() => onpick(fmt ? d : 0)}>{d}</a></span>;
+    }`;
+  const cells = (d) => [...d.querySelectorAll('span')].map((x) => `${x.id}:${x.className.trim()}:${x.querySelector('i').textContent}`).join(' ');
+
+  it('keep their state through updates and moves, and call the function props the row gave them', async () => {
+    const { d, $, fire } = await mount(SRC, 'Cal');
+    expect($('#d1').title).toBe('daytrue');
+    fire('#d2 i', 'click');
+    fire('#d2 i', 'click');
+    await vi.waitFor(() => expect(cells(d)).toBe('d1:sel:0 d2::2 d3::0'));
+    const [d2, d3] = [$('#d2'), $('#d3')];
+    fire('#d3 a', 'click'); // onpick, in the row's component
+    await vi.waitFor(() => expect($('#p').textContent).toBe('3'));
+    expect(cells(d)).toBe('d1::0 d2::2 d3:sel:0');
+    expect([$('#d2'), $('#d3')]).toEqual([d2, d3]); // patched where they are
+    fire('#rev', 'click');
+    await vi.waitFor(() => expect(cells(d)).toBe('d3:sel:0 d2::2 d1::0'));
+    fire('#d1 a', 'click'); // its row moved since it rendered: found by its key
+    await vi.waitFor(() => expect($('#p').textContent).toBe('1'));
+    fire('#bump', 'click'); // a new item for d2: rendered again, and its state kept
+    await vi.waitFor(() => expect(cells(d)).toBe('d3::0 d2:big:2 d1:sel:0'));
+    expect($('#d2')).toBe(d2);
+    fire('#add', 'click'); // d3's row goes, 9's is new
+    await vi.waitFor(() => expect(cells(d)).toBe('d9::0 d2:big:2 d1:sel:0'));
+    expect($('#d9 a').textContent).toBe('9');
+  });
+
+  it('can be the row itself, with its key: state kept by it, in the server render and when the rows move', async () => {
+    const { d, $, fire, html } = await mount(
+      `export function Grid() {
+        var days = [{ d: 1 }, { d: 2 }, { d: 3 }];
+        var picked = 0;
+        return <div><button id="rev" onclick={() => (days = [...days].reverse())}>r</button><p>{days.map((x) => <Day key={x.d} d={x.d} sel={x.d === picked} onpick={(n) => (picked = n)} />)}</p></div>;
+      }
+      export function Day({ d, sel, onpick }) {
+        var hits = 0;
+        return <span class={sel ? 'sel' : ''} id={'d' + d}><i onclick={() => hits++}>{hits}</i><a onclick={() => onpick(d)}>{d}</a></span>;
+      }`,
+      'Grid',
+    );
+    expect(html).toContain('<span m-k="1" class="" id="d1"');
+    fire('#d2 i', 'click');
+    await vi.waitFor(() => expect(cells(d)).toBe('d1::0 d2::1 d3::0'));
+    fire('#d3 a', 'click');
+    await vi.waitFor(() => expect(cells(d)).toBe('d1::0 d2::1 d3:sel:0'));
+    fire('#rev', 'click');
+    await vi.waitFor(() => expect(cells(d)).toBe('d3:sel:0 d2::1 d1::0'));
+    fire('#d2 a', 'click');
+    await vi.waitFor(() => expect(cells(d)).toBe('d3::0 d2:sel:1 d1::0'));
+    expect($('p').children.length).toBe(3);
+  });
+
+  it('render again only those whose props changed', async () => {
+    const { d, $, fire } = await mount(SRC, 'Cal');
+    fire('#d1 i', 'click'); // the list's first run
+    await vi.waitFor(() => expect(cells(d)).toBe('d1:sel:1 d2::0 d3::0'));
+    const seen = [];
+    new MutationObserver((ms) => seen.push(...ms.map((m) => (m.target.closest ? m.target : m.target.parentNode).closest('span, ul').id))).observe($('ul'), { subtree: true, attributes: true, childList: true, characterData: true });
+    fire('#d2 a', 'click');
+    await vi.waitFor(() => expect($('#p').textContent).toBe('2'));
+    await Promise.resolve();
+    expect([...new Set(seen)].sort()).toEqual(['d1', 'd2']); // d3 untouched
+  });
+});
+
 describe('children', () => {
   it("run the parent's handlers and show its state, inside the child, rendered there or in the browser", async () => {
     const { $, fire } = await mount(

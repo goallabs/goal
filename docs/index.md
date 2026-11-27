@@ -69,4 +69,5 @@ export function Counter({ start }) {
 
 goal.js is young, and these are not supported yet:
 
-- components inside a keyed list's row.
+- a component with children in a keyed list's row, or one inside a `{...}` in the row;
+- a component whose root is more than one element.

@@ -61,7 +61,7 @@ export const _$B = {
     // nearest keyed row `near` gives for it is `at` (none inside the hole)
     let at = null;
     const find = (q, near) =>
-      (at ? [...at.querySelectorAll(q)] : top.flatMap((t) => [t, ...t.querySelectorAll(q)]).filter((y) => y.matches(q))).filter((y) => {
+      (at ? [at, ...at.querySelectorAll(q)] : top.flatMap((t) => [t, ...t.querySelectorAll(q)])).filter((y) => y.matches(q)).filter((y) => {
         const p = near(y);
         return at ? p === at : !p || !top.some((t) => t.contains(p));
       });
@@ -90,6 +90,6 @@ export const _$B = {
 /**
  * A function prop: handler `h` of the component instance `i` that gives it. It runs nothing where it
  * is made; the page gets {$h, $i}, and the loader turns that into a function that runs the handler
- * in that component, as an event would.
+ * in that component, as an event would. One that a list row gives also names the row, `r`: [list, key].
  */
-export const _$f = (h, i) => Object.assign(() => {}, { toJSON: () => ({ $h: h, $i: i }) });
+export const _$f = (h, i, r) => Object.assign(() => {}, { toJSON: () => ({ $h: h, $i: i, $r: r }) });

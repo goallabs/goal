@@ -85,7 +85,7 @@ export function boot(d, events, load = (u) => import(u)) {
   // A component's props. A function prop is written {$h, $i}: calling it runs handler $h of the
   // component that gave it, instance $i (see _$f in render.js).
   const props = (r) =>
-    JSON.parse(r.getAttribute('m-p') || '{}', (k, v) => (v?.$h === undefined ? v : (...a) => act(d.querySelector(`[m-i="${v.$i}"]`), [(m, x) => x[1][v.$h](...a)])));
+    JSON.parse(r.getAttribute('m-p') || '{}', (k, v) => (v?.$h === undefined ? v : (...a) => act(d.querySelector(`[m-i="${v.$i}"]`), [(m, x) => (v.$r ? m._$lk(x, v.$r, v.$h, a) : x[1][v.$h](...a))])));
   // The page's events, and those of components rendered in the browser later (render.js).
   const on = new Set();
   const listen = (list) => {

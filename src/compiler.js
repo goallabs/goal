@@ -46,7 +46,7 @@ const UNSEEN = new Set(['head', 'title', 'meta', 'link', 'base']); // never show
 // by file): render.js for rendering components, call.js for server function calls, load.js for
 // call(), and keyed.js for keyed lists, which only browser code imports; request.js, the request a
 // server function runs for, only server code does.
-const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], load: ['_$lc', '_$lw', '_$ll', '_$lb'], keyed: ['_$L', '_$lf'], request: ['_$req'] };
+const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl', '_$mk'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], load: ['_$lc', '_$lw', '_$ll', '_$lb'], keyed: ['_$L', '_$lf'], request: ['_$req'] };
 const ROUTE_HELPERS = ['redirect', 'json', 'notFound', 'cookie', 'reply', 'stream', 'events'];
 const FORM_METHODS = ['get', 'post', 'put', 'patch', 'delete'];
 
@@ -455,7 +455,7 @@ function component(fn, program, mode, o) {
   const events = [...cx.events];
   const param = fn.node.params[0];
   const keys = t.arrayExpression([]); // the props the browser needs, filled in from the client module
-  const info = { name, interactive, events, state, calls, binds: cx.binds, hs: cx.hs, param, keys, dyn: cx.dyn, offset: cx.offset, tpls: cx.tpls, cache: cx.cache, b: !!cx.b };
+  const info = { name, interactive, events, state, calls, binds: cx.binds, hs: cx.hs, param, keys, dyn: cx.dyn, offset: cx.offset, tpls: cx.tpls, cache: cx.cache, b: !!cx.b, lk: !!cx.lk };
   program.pushContainer('body', cx.tpls);
 
   if (mode === 'server') {
@@ -630,12 +630,13 @@ function element(p, cx, top, root, row) {
   if (/^[A-Z]/.test(tag)) {
     if (cx.kind === 'route') return componentCall(p, cx, tag, false);
     if (cx.kind === 'component' && !root && !row && !cx.inRow) return componentCall(p, cx, tag, top);
+    if (cx.kind === 'component' && row && !cx.inRow) return rowComponent(p, cx, tag, row, rowRoot);
     fail(
       cx.kind !== 'component'
         ? `<${tag}> goes in a route or in a component`
         : root
           ? `a component's root is an element: put <${tag}> inside one`
-          : `<${tag}> can't go inside a keyed list's row yet`,
+          : `<${tag}> can't go inside {...} in a keyed list's row yet: put it straight in the row's markup`,
       p.node,
     );
   }
@@ -656,6 +657,7 @@ function element(p, cx, top, root, row) {
       if (!v.isJSXExpressionContainer()) fail('a key is an expression: key={x.id}', a.node);
       if (rowRoot) {
         row.key = v.node.expression;
+        if (row.comps) parts.push(t.callExpression(t.identifier('_$a'), [t.stringLiteral('m-k'), t.memberExpression(t.identifier('v'), t.numericLiteral(0), true)])); // its components find their state by it (render.js)
         continue;
       }
       // A list in markup that is patched as a whole: inside an element in an {if}, or in another list's
@@ -745,8 +747,58 @@ function element(p, cx, top, root, row) {
  */
 function rowValue(row, e, part, path, cx) {
   row.parts.push(part);
-  row.outer.push(refs(path, (b) => b.scope !== cx.program && !(b.kind === 'param' && b.scope === row.scope)));
+  row.outer.push(!!path && refs(path, (b) => b.scope !== cx.program && !(b.kind === 'param' && b.scope === row.scope)));
   return t.memberExpression(t.identifier('v'), t.numericLiteral(row.vals.push(e) + 2), true);
+}
+
+/**
+ * A component in a list row. Each prop is a value of the row ([3]: no place in the row's markup), kept
+ * like the others, and the component's HTML is one more ([2, path]: it replaces its element). In the
+ * browser it renders again only when one of its props changed; otherwise the row keeps its HTML. A
+ * function prop is a handler of the row, which the child's call finds by the row's key. The row itself
+ * (`root`), <Day key={d.date} ... />, carries its key on the component's element (_$mk).
+ */
+function rowComponent(p, cx, tag, row, root) {
+  if (p.node.children.some((c) => !t.isJSXText(c) || cleanText(c.value) !== '')) fail(`<${tag}> in a keyed list's row takes props, not children, yet`, p.node);
+  const props = [];
+  const own = []; // the row values that are its props
+  for (const a of p.get('openingElement.attributes')) {
+    if (a.isJSXSpreadAttribute()) fail('spread props are not supported yet', a.node);
+    if (!t.isJSXIdentifier(a.node.name)) fail('namespaced props are not supported', a.node);
+    const name = a.node.name.name;
+    const v = a.get('value');
+    const prop = (value) => props.push([name, value]);
+    if (root && name === 'key') {
+      if (!v.isJSXExpressionContainer()) fail('a key is an expression: key={x.id}', a.node);
+      row.key = v.node.expression;
+      continue;
+    }
+    if (/^on/.test(name) || (v.isJSXExpressionContainer() && v.get('expression').isFunction())) {
+      if (!v.isJSXExpressionContainer()) fail(`${name} takes a function: ${name}={(x) => ...}`, a.node);
+      cx.lk = true;
+      prop(t.callExpression(t.identifier('_$f'), [t.stringLiteral(`r${row.hs.length}`), owner(cx, true)[1], t.arrayExpression([t.numericLiteral(row.k), t.cloneNode(row.key, true)])]));
+      row.hs.push(v.node.expression);
+      continue;
+    }
+    let value;
+    if (!v.node) value = t.booleanLiteral(true);
+    else if (v.isStringLiteral()) value = v.node;
+    else if (v.isJSXExpressionContainer()) {
+      inner(v.get('expression'), { ...cx, hs: null, inRow: true });
+      value = v.node.expression;
+    } else fail('a prop value is "text" or {expression}', a.node);
+    rowValue(row, value, [3], v.isJSXExpressionContainer() ? v.get('expression') : null, cx);
+    own.push(row.vals.length - 1);
+    prop(own.at(-1));
+  }
+  const call = (val) => {
+    const ctx = cx.mode === 'client' ? ((cx.b = true), t.callExpression(t.memberExpression(t.identifier('_$B'), t.identifier('h')), [t.numericLiteral(row.k), t.arrayExpression([t.cloneNode(row.key, true)])])) : cx.cId;
+    const c = t.callExpression(t.identifier(tag), [t.objectExpression(props.map(([n, v]) => t.objectProperty(t.stringLiteral(n), typeof v === 'number' ? val(v) : v))), ctx]);
+    return root ? t.callExpression(t.identifier('_$mk'), [c, t.cloneNode(row.key, true)]) : c;
+  };
+  const at = row.vals.length;
+  row.comp[at] = { own, call };
+  return [rowValue(row, call((i) => t.cloneNode(row.vals[i], true)), [2, [...row.path]], null, cx)];
 }
 
 /** Does the code at `path` read a name whose binding passes `test`? */
@@ -891,7 +943,13 @@ function keyedList(c, cx, parts) {
 
   const k = cx.binds.length;
   cx.binds.push(null);
-  const row = { k, root: rowEl.node, scope: fn.scope, vals: [], hs: [], parts: [], outer: [], path: [], whole: false, key: null };
+  let comps = false; // components in the row: it carries its key, for their state
+  rowEl.traverse({
+    JSXOpeningElement(x) {
+      if (/^[A-Z]/.test(x.node.name.name)) comps = true;
+    },
+  });
+  const row = { k, root: rowEl.node, scope: fn.scope, vals: [], hs: [], parts: [], outer: [], path: [], whole: false, key: null, comps, comp: [] };
   // Does the row read its index? Then a row moved to another index is worked out again.
   const index = fn.node.params[1];
   const byIndex = !!index && (!t.isIdentifier(index) || refs(rowEl, (b) => b.identifier === index));
@@ -920,7 +978,16 @@ function keyedList(c, cx, parts) {
     const member = (n) => t.memberExpression(o, t.numericLiteral(n), true);
     const and = (xs) => xs.reduce((x, y) => t.logicalExpression('&&', x, y));
     const outer = row.vals.map((v, i) => (row.outer[i] ? t.identifier(`_$d${i}`) : null));
-    const vals = row.vals.map((v, i) => outer[i] ?? t.conditionalExpression(same, member(i + 3), v));
+    // A component's props are named, the ones of the item too, so its render can take them: it
+    // renders again only when one changed
+    const prop = new Set(row.comp.flatMap((c) => c.own)); // flatMap skips the places that hold no component
+    const named = row.vals.map((v, i) => outer[i] ?? (prop.has(i) ? t.identifier(`_$d${i}`) : null));
+    const kept = (v, i) => t.conditionalExpression(same, member(i + 3), v);
+    const vals = row.vals.map((v, i) => {
+      const c = row.comp[i];
+      if (c) return t.conditionalExpression(and([o, ...c.own.map((j) => t.binaryExpression('===', member(j + 3), named[j]))]), member(i + 3), c.call((j) => named[j]));
+      return named[i] ?? kept(v, i);
+    });
     cx.cache.push(k);
     fn.node.body = t.blockStatement([
       ...(t.isBlockStatement(fn.node.body) ? [...pre, ...fn.node.body.body.slice(0, -1)] : pre),
@@ -928,7 +995,7 @@ function keyedList(c, cx, parts) {
         t.variableDeclarator(kv, row.key),
         t.variableDeclarator(o, t.callExpression(id('_$C'), [kv, idx])),
         t.variableDeclarator(same, and([o, t.binaryExpression('===', member(1), item), ...(byIndex ? [t.binaryExpression('===', member(2), idx)] : [])])),
-        ...row.vals.flatMap((v, i) => (outer[i] ? [t.variableDeclarator(outer[i], v)] : [])),
+        ...row.vals.flatMap((v, i) => (named[i] ? [t.variableDeclarator(named[i], outer[i] ? v : kept(v, i))] : [])),
       ]),
       t.returnStatement(t.conditionalExpression(and([same, ...outer.flatMap((d, i) => (d ? [t.binaryExpression('===', member(i + 3), d)] : []))]), o, t.arrayExpression([kv, item, idx, ...vals]))),
     ]);
@@ -1143,7 +1210,7 @@ function clientModule(program, info, o) {
   if (info.binds.some((b) => b.k[0] === 2)) {
     // The list patcher and the row handlers, for the loader: in the one import from keyed.js, which
     // the bundler keeps as written (it's a file of its own, next to the chunks)
-    const names = ['_$lp', '_$lh'].map((n) => t.identifier(n));
+    const names = ['_$lp', '_$lh', ...(info.lk ? ['_$lk'] : [])].map((n) => t.identifier(n)); // _$lk: function props of components in rows
     body.find((s) => s.source?.value === o.keyed).specifiers.push(...names.map((n) => t.importSpecifier(n, n)));
     body.push(t.exportNamedDeclaration(null, names.map((n) => t.exportSpecifier(n, n))));
   }

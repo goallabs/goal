@@ -381,6 +381,22 @@ describe('components rendered in the browser', () => {
     expect(t.match(/_\$B\.h\(\d\)/g)).toEqual(['_$B.h(0)', '_$B.h(0)']); // Leaf, then Card: hole 0 is Card's
   });
 
+  it('render a component in a keyed row again only when one of its props changed', () => {
+    const r = build(`export function Cal() {
+      var days = [];
+      var picked = 1;
+      return <div>{days.map((x) => <Day key={x.d} d={x.d} sel={x.d === picked} onpick={(n) => (picked = n)} />)}</div>;
+    }
+    export function Day({ d, sel, onpick }) { return <span class={sel ? 'sel' : ''} onclick={() => onpick(d)}>{d}</span>; }`);
+    const cal = r.clients.find((c) => c.name === 'Cal').code;
+    expect(cal).toContain('export const _$k = [[2, 0, _$t0, [[3], [3], [2, []]]]];'); // its props have no place; its HTML replaces the row
+    expect(cal).toContain('_$d0 = _$q ? _$o[3] : x.d,\n      _$d1 = x.d === picked;'); // a prop of the item is kept with it
+    expect(cal).toContain('_$o && _$o[3] === _$d0 && _$o[4] === _$d1 ? _$o[5] : _$mk(Day({'); // the last HTML, unless a prop changed
+    expect(cal).toContain('"onpick": _$f("r0", _$B.r.getAttribute("m-i"), [0, x.d])'); // a handler of the row, found by its key
+    expect(cal).toContain('export { _$lp, _$lh, _$lk };');
+    expect(r.server).toContain('_$mk(Day({');
+  });
+
   it("name the file when goal.js itself fails on it", () => {
     const typesOf = () => {
       throw new TypeError('x is undefined');
@@ -914,7 +930,13 @@ describe('errors', () => {
     ['function A() { let a = 1; return <p onclick={() => { a = 2; }}/>; }', 'Declare it with `var`'],
     ['function A() { return <x.y/>; }', 'plain tag names'],
     ['function A() { return <B/>; }', "a component's root is an element"],
-    ['function A() { var xs = []; return <ul>{xs.map((x) => <li key={x}><B /></li>)}</ul>; }', "<B> can't go inside a keyed list's row yet"],
+    ['function A() { var xs = []; return <ul>{xs.map((x) => <B key="k" onx={() => 1} />)}</ul>; }', 'a key is an expression: key={x.id}'],
+    ['function A() { var xs = []; return <ul>{xs.map((x) => <li key={x}>{x ? <B /> : null}</li>)}</ul>; }', "<B> can't go inside {...} in a keyed list's row yet"],
+    ['function A() { var xs = []; return <ul>{xs.map((x) => <li key={x}><B>hi</B></li>)}</ul>; }', "<B> in a keyed list's row takes props, not children, yet"],
+    ['function A() { var xs = []; return <ul>{xs.map((x) => <li key={x}><B {...x} /></li>)}</ul>; }', 'spread props are not supported yet'],
+    ['function A() { var xs = []; return <ul>{xs.map((x) => <li key={x}><B a:b="1" /></li>)}</ul>; }', 'namespaced props are not supported'],
+    ['function A() { var xs = []; return <ul>{xs.map((x) => <li key={x}><B onpick="go()" /></li>)}</ul>; }', 'onpick takes a function'],
+    ['function A() { var xs = []; return <ul>{xs.map((x) => <li key={x}><B a=<i /> /></li>)}</ul>; }', 'a prop value is "text" or {expression}'],
     ['const x = <B/>;', '<B> goes in a route or in a component'],
     ['function A() { return <p {...x}/>; }', 'spread attributes'],
     ['function A() { return <p a:b="1"/>; }', 'namespaced attributes'],

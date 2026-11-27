@@ -86,6 +86,26 @@ and what was typed.
 
 A list that never changes, such as one in a route, renders once and needs no key.
 
+### Components in keyed lists
+
+A row can be a component, or hold components:
+
+```jsx
+<div class="grid">
+  {days.map((d) => <Day key={d.date} date={d.date} selected={d.date === picked} onpick={(x) => (picked = x)} />)}
+</div>
+<ul>{people.map((p) => <li key={p.id}><Avatar user={p} /> {p.name}</li>)}</ul>
+```
+
+A component in a row renders again only when one of its props changed: a prop that reads only the
+row's item stays as it was while the item is the same, and one that reads state is worked out again.
+Picking a day in the grid above renders two `Day`s, the one picked and the one before, and leaves the
+others alone. A component with state keeps it by its row's key, when other rows change and when its
+row moves. A function prop like `onpick` runs in the component that has the list, for that row.
+
+A component in a row takes props, not children, and goes straight in the row's markup, not inside a
+`{...}` in it.
+
 ## Components inside components
 
 A component can render another anywhere in its markup: in its fixed part, in an `{if}` or ternary
@@ -106,6 +126,7 @@ export function Panel() {
 ```
 
 - When the props a child gets read state, the child is rendered again in the browser when they change.
+  In a [keyed list's row](#components-in-keyed-lists), only when one of them changed.
   It keeps its own state, so the second `Counter` above shows the new `start` and keeps its count.
 - A component in a `{...}` hole starts from its props when it appears, and keeps its state while it
   stays. Each one keeps its own, even next to others of its kind. In a keyed list's rows, each keeps
@@ -194,6 +215,3 @@ components/Counter.goal:6:3: `count` is state: change it in an event handler, no
 components/Counter.goal:9:15: write onclick, the HTML name, not onClick
 ```
 
-## Not supported yet
-
-- Components inside a keyed list's row.

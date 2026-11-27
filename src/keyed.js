@@ -61,12 +61,27 @@ const set = (el, name, v, off = v == null || v === false) =>
   : off ? el.removeAttribute(name)
   : el.setAttribute(name, v === true ? '' : v);
 
-/** Writes value `v` where `part` says, in `row`: a text (in place when it can be) or an attribute. */
+/**
+ * A function prop of a component in a row: handler `h` ("r0") of the row with key `key` in list `n`,
+ * found by its key when the child calls it (its place may have changed since it rendered).
+ */
+export const _$lk = (x, [n, key], h, a) => {
+  const list = x[0][n];
+  const i = list.findIndex((r) => r[0] === key);
+  return list.h(list[i][1], i)[h.slice(1)](...a);
+};
+
+/**
+ * Writes value `v` where `part` says, in `row`: a text (in place when it can be), an attribute, or a
+ * component's HTML, into its element. A component's prop has no place of its own (kind 3).
+ */
 const put = (row, [kind, path, name], v) => {
+  if (kind > 2) return;
   let el = row;
   for (let p of path) for (el = el.firstElementChild; p--; ) el = el.nextElementSibling; // no live children list for each element
   const x = el.firstChild;
-  if (kind) set(el, name, v);
+  if (kind > 1) into(el.ownerDocument, el.parentNode, el, el.nextSibling, v);
+  else if (kind) set(el, name, v);
   else if (/[<&]/.test(v)) into(el.ownerDocument, el, el.firstChild, null, v); // markup: into the nodes there, keyed rows by key
   else if (x?.nodeType === 3 && !x.nextSibling) x.data = v;
   else el.textContent = v;
@@ -78,7 +93,8 @@ const put = (row, [kind, path, name], v) => {
  */
 const make = (d, rows, tpl, parts) => {
   const t = d.createElement('template');
-  if (!parts) {
+  if (!parts || parts.some((p) => p[0] === 2)) {
+    // a component's HTML is markup to parse anyway
     t.innerHTML = rows.map(tpl).join('');
     return t.content;
   }
