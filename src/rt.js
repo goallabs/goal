@@ -159,3 +159,15 @@ function attr(a, name, v) {
   if (name === 'value') a.value = v ?? '';
   if (name === 'checked') a.checked = v !== null;
 }
+
+/**
+ * A callback a handler made that changes state, like setInterval's, as the component's code holds
+ * it: callback `i` of the component at root `r`, with `c`, what it uses of the functions around it.
+ * The loader runs it as a handler of the run the page shows (see goal:w in loader.js), so it sees
+ * the state as it is now, and the page updates.
+ */
+export const _$w = (r, i, c = []) => (...a) => {
+  const e = new CustomEvent('goal:w', { bubbles: true, detail: [i, a, c] });
+  r.dispatchEvent(e);
+  return e.o;
+};

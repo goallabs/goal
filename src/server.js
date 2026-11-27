@@ -15,12 +15,15 @@ export function render(Component, props = {}, ctx = _$ctx()) {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EVENTS = '"__GOAL_EVENTS__"';
-let loaderCode;
-/** The loader, minified, starting itself; the page puts its events where EVENTS is. */
-export function loaderScript() {
-  const src = readFileSync(join(HERE, 'loader.js'), 'utf8');
-  loaderCode ??= transformSync(`${src.replace('export function boot', 'function boot')}\nboot(document, ${EVENTS});`, { format: 'iife', minify: true }).code.trim();
-  return loaderCode;
+const loaderCode = {};
+/**
+ * The loader, minified, starting itself; the page puts its events where EVENTS is. The code for
+ * onmount (`mount`) and for callbacks that change state (`w`) goes in only when asked for.
+ */
+export function loaderScript({ mount = false, w = false } = {}) {
+  let src = readFileSync(join(HERE, 'loader.js'), 'utf8').replace('export function boot', 'function boot');
+  for (const [part, on] of Object.entries({ mount, w })) if (!on) src = src.replace(new RegExp(`/\\*\\+${part}\\*/[^]*?/\\*-${part}\\*/`, 'g'), '');
+  return (loaderCode[[mount, w]] ??= transformSync(`${src}\nboot(document, ${EVENTS});`, { format: 'iife', minify: true }).code.trim());
 }
 
 let hmrCode;
@@ -39,8 +42,11 @@ export function hmrScript() {
  */
 export function page(html, events, nonce, token = '', dev = false, styles = null, base = '') {
   const link = styles ? `<link rel="stylesheet" href="${_$e(styles)}">` : '';
+  // An app with onmount or callbacks anywhere: a component may first appear in the browser (_$ctx.m
+  // and _$ctx.w, see compiler.js)
+  if (events.length && _$ctx.m && !events.includes('mount')) events = [...events, 'mount'];
   let script = events.length
-    ? `<meta name="goal-csrf" content="${_$e(token)}">${base ? `<meta name="goal-base" content="${_$e(base)}">` : ''}<script type="module" nonce="${nonce}">${loaderScript().replace(EVENTS, JSON.stringify(events))}</script>`
+    ? `<meta name="goal-csrf" content="${_$e(token)}">${base ? `<meta name="goal-base" content="${_$e(base)}">` : ''}<script type="module" nonce="${nonce}">${loaderScript({ mount: events.includes('mount'), w: !!_$ctx.w }).replace(EVENTS, JSON.stringify(events))}</script>`
     : '';
   if (dev) script += `<meta name="goal-events" content="${_$e(JSON.stringify(events))}"><script type="module" nonce="${nonce}">${hmrScript()}</script>`;
   if (/^<html[\s>]/.test(html)) {

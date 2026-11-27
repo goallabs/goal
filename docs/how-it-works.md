@@ -21,7 +21,8 @@ nav_order: 8
    handlers on the event's path, saves the `var`s they changed, runs the body again, and patches only
    the bindings whose value changed. If a handler waits for a server function, it patches again when
    the server answers. The chunk starts loading on intent (pointer over, focus), so it's usually there
-   before the click or the first key.
+   before the click or the first key. A component with [`onmount`](components.md#onmount) loads its chunk as the page
+   starts, and runs it.
 
 ## One source for the server and the browser
 
@@ -51,7 +52,8 @@ components share go in a chunk of their own, and the keyed-list code in another,
 components with a keyed list. The code for calling server functions, and for rendering a component
 inside another in the browser, goes only to the components that do it. In the demo app, the
 component chunks are 220 to 1251 B, the shared helpers 980 B, the keyed-list code 1566 B, and the
-loader 1114 B. The files' style blocks are one stylesheet, 327 B there.
+loader 1117 B. The loader has the code for `onmount`, and for callbacks that change state, only in an
+app that uses them: with both, it's about 1350 B. The files' style blocks are one stylesheet, 327 B there.
 
 ## Live updates in goal dev
 

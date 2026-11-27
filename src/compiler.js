@@ -46,7 +46,7 @@ const UNSEEN = new Set(['head', 'title', 'meta', 'link', 'base']); // never show
 // by file): render.js for rendering components, call.js for server function calls, load.js for
 // call(), and keyed.js for keyed lists, which only browser code imports; request.js, the request a
 // server function runs for, only server code does.
-const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl', '_$mk'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], load: ['_$lc', '_$lw', '_$ll', '_$lb'], keyed: ['_$L', '_$lf'], request: ['_$req'] };
+const HELPERS = { rt: ['_$m', '_$h', '_$a', '_$e', '_$u', '_$call', '_$hl', '_$mk', '_$w'], render: ['_$pa', '_$ctx', '_$B', '_$f'], call: ['_$sf'], load: ['_$lc', '_$lw', '_$ll', '_$lb'], keyed: ['_$L', '_$lf'], request: ['_$req'] };
 const ROUTE_HELPERS = ['redirect', 'json', 'notFound', 'cookie', 'reply', 'stream', 'events'];
 const FORM_METHODS = ['get', 'post', 'put', 'patch', 'delete'];
 
@@ -144,6 +144,10 @@ function compileFile(source, opts) {
   }
 
   const body = server.program;
+  // A component with onmount (m) or callbacks that change state (w) may first appear in the browser:
+  // then every page with events gets the loader with that code (server.js)
+  const uses = { m: server.components.some((c) => c.events.includes('mount')), w: client.components.some((c) => c.cbs.length) };
+  for (const [k, on] of Object.entries(uses)) if (on) body.unshiftContainer('body', t.expressionStatement(t.assignmentExpression('=', t.memberExpression(t.identifier('_$ctx'), t.identifier(k)), t.booleanLiteral(true))));
   body.unshiftContainer('body', importHelpers(o));
   const endpoints = d.serverFns.map((f) => ({ name: f.name, path: o.sfns.get(f.name) }));
   if (d.routes.length || endpoints.length)
@@ -178,6 +182,7 @@ function compileFile(source, opts) {
     routes: d.routes.map(({ method, path }) => ({ method, path })),
     serverFunctions: endpoints,
     css,
+    uses: { mount: uses.m, w: uses.w }, // the loader code its pages need (server.js)
   };
 }
 
@@ -366,7 +371,10 @@ function serverCalls(program, comps, o) {
     const handler = parent.isJSXExpressionContainer() && parent.parentPath.isJSXAttribute() && /^on/.test(parent.parent.name.name);
     const declared = fn.isFunctionDeclaration() ? fn : parent.isVariableDeclarator() ? parent : null;
     const top = declared && (fn.isFunctionDeclaration() ? fn.parent : declared.parentPath.parent) === comp.node.body;
-    if (!handler && !top) fail('call server functions in an event handler, or in a function declared at the top of the component', call.node);
+    // or in a callback one of those makes, like setInterval's (see callbacks)
+    let inner = false;
+    for (let up = fn.parentPath.getFunctionParent(); up.node !== comp.node; up = up.parentPath.getFunctionParent()) if (runsLater(up, comp)) inner = true;
+    if (!handler && !top && !inner) fail('call server functions in an event handler, or in a function declared at the top of the component', call.node);
     fn.node.async = true;
     const args = t.arrayExpression(call.node.arguments);
     if (url) call.replaceWith(t.awaitExpression(t.callExpression(t.identifier('_$sf'), [t.stringLiteral(url), args])));
@@ -415,6 +423,92 @@ function route(fn, meta, program) {
   fn.get('body').unshiftContainer('body', pre);
 }
 
+/** An event handler in markup, or a function declared at the top of component `comp`: code that runs after the render. */
+function runsLater(f, comp) {
+  const parent = f.parentPath;
+  if (parent.isJSXExpressionContainer() && parent.parentPath.isJSXAttribute() && /^on/.test(parent.parent.name.name)) return true;
+  const decl = f.isFunctionDeclaration() ? f : parent.isVariableDeclarator() ? parent.parentPath : null;
+  return !!decl && decl.parent === comp.node.body;
+}
+
+/**
+ * Callbacks that change state. A function that a handler (or the component's own function) makes,
+ * like setInterval's or a listener on window, runs after the handler, when the run that made it is
+ * gone. In the browser it goes to the run's callbacks (cx.cbs), and where it was is _$w(_$r, i): the
+ * loader runs callback i of the run the page shows then (rt.js), so it reads the state as it is, and
+ * saves and patches what it changed. The variables of the functions around it that it uses go with
+ * it, as they are when it's made: cx.cbs holds `(k) => callback`, called with them (_$w's third
+ * argument), so they can't change.
+ */
+function callbacks(fn, cx) {
+  const sc = fn.scope;
+  const own = (p, name) => p.scope.getBinding(name)?.scope === sc;
+  const top = new Map(); // the component's own functions
+  for (const [name, b] of Object.entries(sc.bindings)) {
+    const f = b.kind === 'hoisted' ? b.path : b.path.isVariableDeclarator() && b.path.get('init').isFunction() ? b.path.get('init') : null;
+    if (f) top.set(name, f);
+  }
+  const changes = (f, changers) => {
+    let hit = f.node.async; // it waits for a server function, whose answer it saves
+    f.traverse({
+      'AssignmentExpression|UpdateExpression'(p) {
+        const id = p.node.left ?? p.node.argument;
+        if (t.isIdentifier(id) && own(p, id.name)) hit = true; // state: the component's other names can't change (analyze)
+      },
+      CallExpression(p) {
+        const c = p.node.callee;
+        if (t.isIdentifier(c) && changers.has(c.name) && own(p, c.name)) hit = true;
+      },
+    });
+    return hit;
+  };
+  const changers = new Set();
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [name, f] of top)
+      if (!changers.has(name) && changes(f, changers)) {
+        changers.add(name);
+        grew = true;
+      }
+  }
+  const later = (p) => {
+    for (let up = p.parentPath.getFunctionParent(); up.node !== fn.node; up = up.parentPath.getFunctionParent()) if (runsLater(up, fn)) return true;
+    return false;
+  };
+  const add = (f, caps = []) =>
+    t.callExpression(t.identifier('_$w'), [t.identifier('_$r'), t.numericLiteral(cx.cbs.push(t.arrowFunctionExpression(caps.map((c) => t.identifier(c)), f)) - 1), ...(caps.length ? [t.arrayExpression(caps.map((c) => t.identifier(c)))] : [])]);
+  fn.get('body').traverse({
+    // setTimeout(tick): the component's own function, given as a callback
+    ReferencedIdentifier(p) {
+      const name = p.node.name;
+      if (changers.has(name) && own(p, name) && !p.parentPath.isCallExpression({ callee: p.node }) && later(p)) {
+        p.replaceWith(add(t.identifier(name)));
+        p.skip();
+      }
+    },
+    Function: {
+      exit(p) {
+        if (runsLater(p, fn) || !later(p) || !changes(p, changers)) return;
+        const caps = new Set();
+        p.traverse({
+          ReferencedIdentifier(q) {
+            const name = q.node.name;
+            const b = q.scope.getBinding(name);
+            if (!b || b.scope === sc || b.scope === cx.program || b.scope.path === p || b.scope.path.isDescendant(p)) return;
+            if (b.constantViolations.length)
+              fail(`\`${name}\` changes, so a callback that changes state can't use it: the callback takes it as it is when it's made. Make it state with var, or a const`, b.constantViolations[0].node);
+            caps.add(name);
+          },
+        });
+        const f = p.node;
+        const call = add(t.isFunctionDeclaration(f) ? t.functionExpression(f.id, f.params, f.body, f.generator, f.async) : f, [...caps]);
+        p.replaceWith(t.isFunctionDeclaration(f) ? t.variableDeclaration('const', [t.variableDeclarator(f.id, call)]) : call);
+        p.skip();
+      },
+    },
+  });
+}
+
 const shorthand = (n) => t.objectProperty(t.identifier(n), t.identifier(n), false, true);
 
 // ---------------------------------------------------------------------------------------------
@@ -440,10 +534,12 @@ function component(fn, program, mode, o) {
     cId: t.identifier('_$c'),
     tpls: [], // row templates of keyed lists, as module-level declarations
     cache: [], // keyed lists whose rows the browser keeps from run to run
+    cbs: [], // callbacks that change state, in the browser (see callbacks)
     mode,
     o,
   };
 
+  if (mode === 'client') callbacks(fn, cx);
   const body = fn.get('body');
   const ret = body.get('body').at(-1);
   const rootParts = element(ret.get('argument'), cx, true, true);
@@ -455,7 +551,7 @@ function component(fn, program, mode, o) {
   const events = [...cx.events];
   const param = fn.node.params[0];
   const keys = t.arrayExpression([]); // the props the browser needs, filled in from the client module
-  const info = { name, interactive, events, state, calls, binds: cx.binds, hs: cx.hs, param, keys, dyn: cx.dyn, offset: cx.offset, tpls: cx.tpls, cache: cx.cache, b: !!cx.b, lk: !!cx.lk };
+  const info = { name, interactive, events, state, calls, binds: cx.binds, hs: cx.hs, param, keys, dyn: cx.dyn, offset: cx.offset, tpls: cx.tpls, cache: cx.cache, b: !!cx.b, lk: !!cx.lk, cbs: cx.cbs };
   program.pushContainer('body', cx.tpls);
 
   if (mode === 'server') {
@@ -1271,9 +1367,9 @@ function clientComponent(fn, info) {
     );
   const handlers = t.arrayExpression([...info.hs, ...(info.dyn ? [t.spreadElement(t.identifier('_$H'))] : [])]);
   const read = t.arrowFunctionExpression([], t.objectExpression(info.state.map(shorthand)));
-  const result = t.arrayExpression([t.arrayExpression(info.binds.map((b) => b.e)), handlers, read]);
-  // A component with call() vars gets its root too (the loader passes it), to answer to
-  const params = info.calls.length ? [info.param ?? t.identifier('_$p'), t.identifier('_$r')] : info.param ? [info.param] : [];
+  const result = t.arrayExpression([t.arrayExpression(info.binds.map((b) => b.e)), handlers, read, ...(info.cbs.length ? [null, t.arrayExpression(info.cbs)] : [])]);
+  // A component with call() vars or callbacks gets its root too (the loader passes it), to answer to
+  const params = info.calls.length || info.cbs.length ? [info.param ?? t.identifier('_$p'), t.identifier('_$r')] : info.param ? [info.param] : [];
   const f = t.functionDeclaration(t.identifier(info.name), [s, ...params], t.blockStatement([...pre, ...stmts, t.returnStatement(result)]));
   f.loc = fn.loc;
   return [

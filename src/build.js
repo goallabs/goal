@@ -132,6 +132,7 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
   const chunks = [];
   const routes = [];
   const routeFiles = [];
+  const uses = { mount: false, w: false }; // what the loader needs for this app: onmount, callbacks that change state
   const entries = new Map(); // client modules, by output name
   const renders = new Map(); // render modules, by .goal file
   const sheets = new Map(); // the style blocks, scoped, by .goal file
@@ -172,6 +173,7 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
       routes.push({ key, file: rel, label: `${route.method} ${route.path}` });
     }
     renders.set(resolve(app, rel), r.render);
+    for (const k in r.uses) uses[k] ||= r.uses[k];
     if (r.css) sheets.set(rel, r.css);
     for (const c of r.clients) entries.set(`${base}.${c.name}`, { code: c.code, dir: resolve(app, dirname(rel)), name: `${posix.basename(base)}.${c.name}` });
   }
@@ -237,7 +239,7 @@ export async function build(app, { out = join(app, 'dist'), dev = false, publicP
     for (const f of css ? readdirSync(join(app, 'public'), { recursive: true }).filter((f) => f.endsWith('.css')) : [])
       writeFileSync(join(out, 'public', f), await css(readFileSync(join(app, 'public', f), 'utf8'), join(app, 'public', f), join(out, 'public', f)));
   }
-  return { version, chunks, loader: gzipSync(loaderScript()).length, routes: routes.map((r) => r.label), css: !!css, styles };
+  return { version, chunks, loader: gzipSync(loaderScript(uses)).length, routes: routes.map((r) => r.label), css: !!css, styles };
 }
 
 /**

@@ -11,9 +11,13 @@
  * @param {string[]} events the event types the page's components handle
  * @param {(url: string) => Promise<any>} [load] how to load a client module
  */
+// Between /*+mount*/ and /*-mount*/ is the code for onmount, and between /*+w*/ and /*-w*/ the code
+// for callbacks that change state: server.js leaves each out of the pages of an app that has none.
 export function boot(d, events, load = (u) => import(u)) {
   const mods = {};
-  const get = (r, u = r.getAttribute('m-c')) => (mods[u] ||= load(u));
+  /*+w*/ const got = {}; // the modules loaded: a callback's handler runs in the same task, so it can preventDefault
+  /*-w*/
+  const get = (r, u = r.getAttribute('m-c')) => (mods[u] ||= load(u)/*+w*/.then((m) => (got[u] = m))/*-w*/);
   const json = (r, a) => JSON.parse(r.getAttribute(a) || '{}');
   // Start loading on intent (pointer over, focus), so the code is there by the first click or key.
   const warm = (e) => {
@@ -31,8 +35,9 @@ export function boot(d, events, load = (u) => import(u)) {
   };
   const go = async (e) => {
     // The handlers on the way up, found before any runs (a handler may re-render the rest away).
+    // A mount is the element's own: it doesn't go up.
     const todo = [];
-    for (let el = e.target; el.getAttribute; el = el.parentNode)
+    for (let el = e.target; el.getAttribute; el = /*+mount*/ e.type === 'mount' ? d : /*-mount*/ el.parentNode)
       for (const pair of (el.getAttribute('m-on') || '').split(' ')) {
         const [type, at] = pair.split(':');
         if (type !== e.type) continue;
@@ -43,14 +48,20 @@ export function boot(d, events, load = (u) => import(u)) {
     for (const r of new Set(todo.map((x) => x[0])))
       await act(
         r,
-        todo.filter((t) => t[0] === r).map(([, h, el]) => (m, x) => (h[0] === 'r' ? m._$lh(el, r, x, h, e) : x[1][h](e))), // r: a keyed list row's handler (keyed.js)
+        todo
+          .filter((t) => t[0] === r)
+          .map(([, h, el]) => (m, x) => {
+            const o = h[0] === 'r' ? m._$lh(el, r, x, h, e) : x[1][h](e); // r: a keyed list row's handler (keyed.js)
+            /*+mount*/ if (e.type === 'mount' && o?.call) el.$u = o; // what to do when the element leaves the page
+            /*-mount*/ return o;
+          }),
       );
   };
   // Runs handlers of the component at root r (each call gets its module and run), saves the state
   // they changed and patches it, and again when the calls to server functions they made answer.
   // `set` is new state from a call() (load.js), put in after the run the page shows.
   const act = async (r, calls, set) => {
-    const m = await get(r);
+    const m = /*+w*/ got[r.getAttribute('m-c')] || /*-w*/ (await get(r));
     r.$s ||= json(r, 'm-s');
     r.$p ||= props(r);
     const x = (r.$x ||= run(m, r));
@@ -70,8 +81,16 @@ export function boot(d, events, load = (u) => import(u)) {
       const y = run(m, r);
       patch(d, r, m, r.$x[0], y[0]);
       r.$x = y;
+      /*+mount*/ scan(r); /*-mount*/
     };
-    const outs = calls.map((f) => f(m, x));
+    // While its handlers run, a callback they made that changes state (_$w in rt.js) runs at once,
+    // and if it waits for a server function, so do they (x.w).
+    /*+w*/ r.$a = x;
+    try {
+      /*-w*/ var outs = calls.map((f) => f(m, x)) /*+w*/.concat(x.w || []);
+    } finally {
+      r.$a = x.w = 0;
+    } /*-w*/
     save();
     update();
     if (outs.some((o) => o?.then))
@@ -95,9 +114,41 @@ export function boot(d, events, load = (u) => import(u)) {
         d.addEventListener(ev, go, true);
       }
   };
+  /*+mount*/
+  // onmount: its handler runs once the element is in the page, at the start or when a patch puts it
+  // there, and what it returns runs when the element leaves. A row that only moved is still in the
+  // page after the patch.
+  const live = new Set();
+  const scan = (r) => {
+    for (const el of live)
+      if (!el.isConnected) {
+        live.delete(el);
+        el.$u?.();
+      }
+    for (const el of r.querySelectorAll('[m-on*="mount:"]'))
+      if (!live.has(el)) {
+        live.add(el);
+        go({ type: 'mount', target: el });
+      }
+  };
+  scan(d);
+  d.addEventListener('goal:listen', () => scan(d)); // goal dev put a new body in
+  /*-mount*/
   listen(events);
   d.addEventListener('goal:listen', (e) => listen(e.detail));
   d.addEventListener('goal:set', (e) => act(e.target, [], e.detail));
+  /*+w*/
+  // A callback that changes state, made by a handler, runs later (a timer, a listener on window): as
+  // a handler of the component's run now, from its callbacks (x[4]), so it sees the state as it is.
+  d.addEventListener('goal:w', (e) => {
+    const [i, a, c] = e.detail;
+    const r = e.target;
+    const x = r.$a;
+    if (!x) return (e.o = act(r, [(m, x) => x[4][i](...c)(...a)]));
+    e.o = x[4][i](...c)(...a);
+    if (e.o?.then) (x.w ||= []).push(e.o);
+  });
+  /*-w*/
 }
 
 /** Updates the bindings whose value changed between `a` and `b`. */

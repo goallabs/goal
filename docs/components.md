@@ -29,7 +29,8 @@ element, not a fragment, and no other `return`. It takes at most one parameter, 
 - **`var`** declares state, one name at a time, at the top of the component. A `var` anywhere else in
   a component, in a block or inside a function such as an event handler, is an error, so a `var` is
   always state. Inside a function, `let` and `const` are ordinary local variables.
-- State changes only in event handlers (`count++`, `count = x`), never while rendering.
+- State changes only in event handlers (`count++`, `count = x`), and in the
+  [callbacks they make](#callbacks), never while rendering.
 - Replace arrays and objects instead of changing them in place: `items = [...items, x]`. A change is
   seen when the variable is assigned.
 - **`let` and `const`** are computed: they are worked out again from state each time. A `let` can be
@@ -172,6 +173,67 @@ export function Picker({ onpick }) {
 When `Picker` calls `onpick`, the parent's state changes and the parent updates, as if it had handled
 an event itself. Call a function prop from an event handler, not while rendering: on the server it does
 nothing.
+
+## onmount
+
+`onmount` runs when its element is in the page: at the start, or when an update puts it there (an
+`{if}` branch, a new row, a component that appears). If it returns a function, that function runs
+when the element leaves the page.
+
+```jsx
+export function Clock() {
+  var now = Date.now();
+  return (
+    <time onmount={() => {
+      const t = setInterval(() => (now = Date.now()), 1000);
+      return () => clearInterval(t);
+    }}>{new Date(now).toLocaleTimeString()}</time>
+  );
+}
+```
+
+```jsx
+{if (editing) <input value={title} onmount={(e) => e.target.focus()} />}
+```
+
+- It's an event handler like `onclick`, on any element, and its event's `target` is the element. It
+  can change state and call server functions.
+- It runs in the browser only. A component with `onmount` loads its code as the page starts, not on
+  the first event, so use it where something must happen without a click: a timer, a listener on
+  `window`, focus, or a widget from another library on a `<canvas>`.
+- A row of a keyed list that only moves stays in the page: its cleanup doesn't run.
+- The page's script grows by about 130 B gzipped for it, and only in an app that has an `onmount`.
+
+### Callbacks
+
+A function that a handler makes, and that changes state, can run later: a timer's, or a listener on
+`window`. When it runs, it sees the state as it is then, and the page updates:
+
+```jsx
+<div class="modal" onmount={() => {
+  const esc = (e) => { if (e.key === 'Escape') open = false; };
+  addEventListener('keydown', esc);
+  return () => removeEventListener('keydown', esc);
+}}>...</div>
+```
+
+```jsx
+<button onclick={() => { saved = true; setTimeout(() => (saved = false), 2000); }}>Save</button>
+```
+
+```jsx
+<ul onmount={() => {
+  const t = setInterval(() => (feed = latest()), 5000); // a server function
+  return () => clearInterval(t);
+}}>{feed.map((f) => <li key={f.id}>{f.text}</li>)}</ul>
+```
+
+- A callback can use the variables of the handler that made it, as they are when it's made: one
+  that changes afterwards is a compile error. State is always as it is now.
+- The component's own functions work as callbacks too: `setInterval(tick, 1000)`.
+- Called in the handler itself (in a `forEach`, say), it runs right there, and the handler waits for
+  the server functions it calls.
+- The page's script grows by about 110 B gzipped for callbacks, only in an app that has one.
 
 ## Styles
 

@@ -230,6 +230,12 @@ describe('build', () => {
     expect(changed.sort()).toEqual(['lib/a.goal', 'lib/b.goal', 'ui/C.goal']);
   });
 
+  it('counts the loader with the code for onmount and callbacks only in an app that uses them', async () => {
+    const plain = await build(app({ 'C.goal': COUNTER }));
+    const live = await build(app({ 'A.goal': 'export function A() { var n = 0; return <b onmount={() => setTimeout(() => n++, 1)}>{n}</b>; }', 'B.goal': 'export function B() { return <i onmount={() => {}}>b</i>; }', 'C.goal': COUNTER }));
+    expect(live.loader - plain.loader).toBeGreaterThan(150);
+  });
+
   it('refuses the same route twice', async () => {
     const dir = app({ 'a.goal': 'route GET /u/{id} { return 1; }', 'b.goal': 'route GET /u/{name} { return 1; }' });
     await expect(build(dir)).rejects.toThrow('b.goal: route GET /u/{name} is already in a.goal');

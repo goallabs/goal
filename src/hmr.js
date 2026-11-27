@@ -73,6 +73,7 @@ export function hmr(d, w, connect = (url) => new w.EventSource(url)) {
     for (const [href, l] of had) if (!has.has(href)) l.remove();
     for (const [href, l] of has) if (!had.has(href)) d.head.append(d.adoptNode(l));
     d.body.replaceWith(d.adoptNode(next.body));
+    d.dispatchEvent(new CustomEvent('goal:listen', { detail: [] })); // the loader runs the new body's onmounts, and the old one's cleanups
     w.scrollTo(x, y);
     if (focused) refocus(focused);
   }

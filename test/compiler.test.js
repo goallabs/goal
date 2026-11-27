@@ -682,6 +682,56 @@ describe('keyed lists', () => {
   });
 });
 
+describe('onmount and callbacks', () => {
+  it('compiles onmount as an event, and tells every page of the app to bring the loader that runs it', async () => {
+    const { r, server } = await load(`
+      export function A() { var n = 0; return <p onmount={() => n++}>{n}</p>; }
+      export function B() { return <i onmount={() => {}}>b</i>; }`);
+    expect(r.server.match(/_\$ctx\.m = true/g)).toHaveLength(1);
+    expect(r.server).not.toContain('_$ctx.w');
+    expect(build('export function A() { var n = 0; return <p onclick={() => setTimeout(() => n++, 1)}>{n}</p>; }').server).toContain('_$ctx.w = true;');
+    expect(render(server.A).html).toContain('m-on="mount:0"');
+    expect(_$ctx.m).toBe(true);
+    expect(r.render).not.toContain('_$ctx.m'); // the browser's render module
+  });
+
+  it('puts callbacks that change state in the run, where the loader finds them, and leaves the rest', () => {
+    const r = build(`
+      export function A() {
+        var n = 0;
+        function bump() { n++; }
+        const show = (x) => x;
+        return <p onclick={() => {
+          function tick() { n = 2; }
+          setTimeout(tick, 1);
+          setTimeout(bump, 1);
+          setTimeout(() => show(1), 1);
+          setTimeout(() => { let z = 0; z = 1; globalThis.x = z; }, 1);
+          setTimeout(() => setTimeout(() => (n = 3), 1), 1);
+          const k = 5;
+          setTimeout((e) => (n = k + e), 1);
+          bump();
+        }}>{n}</p>;
+      }`);
+    const c = r.clients[0].code;
+    expect(c).toContain('export default function A(_$s, _$p, _$r)');
+    expect(c).toContain('const tick = _$w(_$r, 0);');
+    expect(c).toContain('setTimeout(_$w(_$r, 1), 1);'); // bump, given away
+    expect(c).toContain('setTimeout(() => show(1), 1);');
+    expect(c).toContain('globalThis.x = z;'); // changes no state: as written
+    expect(c).toContain('setTimeout(() => setTimeout(_$w(_$r, 2), 1), 1);');
+    expect(c).toMatch(/\n\s+bump\(\);/); // called in the handler: as written
+    expect(c).toContain('setTimeout(_$w(_$r, 3, [k]), 1);'); // with what it uses from the handler
+    expect(c).toMatch(/,, \[\(\) => function tick\(\) \{\n\s+n = 2;\n\s+\}, \(\) => bump, \(\) => \(\) => n = 3, k => e => n = k \+ e\]\];/);
+  });
+
+  it('refuses a callback that changes state and uses a variable around it that changes', () => {
+    expect(errorOf('export function A() { var n = 0; return <p onclick={() => { let k = 1; setTimeout(() => (n = k), 1); k = 2; }}>{n}</p>; }')).toContain(
+      "App.goal:1:102: `k` changes, so a callback that changes state can't use it: the callback takes it as it is when it's made. Make it state with var, or a const",
+    );
+  });
+});
+
 describe('server functions', () => {
   it('turn calls in handlers into requests the handler waits for, with no async or fetch written', async () => {
     const { r, server } = await load(`
@@ -752,7 +802,7 @@ describe('server functions', () => {
     ['server function s() {}\nconst x = s();', 'call a server function from a route, another server function or an event handler'],
     ['server function s() {}\nfunction f() { return s(); }', 'call a server function from a route, another server function or an event handler'],
     ['server function s() {}\nfunction A() { const v = s(); return <p/>; }', "a server function can't run while a component renders"],
-    ['server function s() {}\nfunction A() { return <p onclick={() => [1].forEach(() => s())}/>; }', 'call server functions in an event handler, or in a function declared at the top'],
+    ['server function s() {}\nfunction A() { const f = [1].map(() => () => s()); return <p/>; }', 'call server functions in an event handler, or in a function declared at the top'],
     ['server function s() {}\nfunction A() { function f() { s(); } f(); return <p/>; }', "a server function can't run while a component renders"],
   ])('%s', (src, message) => {
     expect(errorOf(src)).toContain(message);

@@ -5,9 +5,10 @@ import { render } from '../src/server.js';
 import { load } from './helpers.js';
 
 /** Server-renders a component into a fresh document and boots the loader on it. */
-async function mount(src, name, props, { defaultLoad = false } = {}) {
+async function mount(src, name, props, { defaultLoad = false, more = [] } = {}) {
   const t = await load(src);
-  const { html, events } = render(t.server[name], props);
+  const { html, events: own } = render(t.server[name], props);
+  const events = [...own, ...more]; // more: as a page whose app has onmount somewhere (server.js)
   const d = document.implementation.createHTMLDocument('t');
   d.head.innerHTML = '<meta name="goal-csrf" content="tok">';
   d.body.innerHTML = html;
@@ -609,5 +610,112 @@ describe('function props', () => {
     await vi.waitFor(() => expect($('#later')).not.toBe(null));
     fire('#later', 'click');
     await vi.waitFor(() => expect($('#picked').textContent).toBe('later 1'));
+  });
+});
+
+describe('onmount', () => {
+  const log = (globalThis.log = []);
+  globalThis.later = []; // callbacks the components give away, called as a timer would
+  const LIFE = `export function Page() {
+      var open = true;
+      var n = 0;
+      var items = [1, 2, 3];
+      function bump() { n = n + 10; }
+      return (
+        <main onmount={() => { later.push(() => (n = n + 1), bump); log.push('page'); }}>
+          <button id="open" onclick={() => (open = !open)}>o</button>
+          <button id="inc" onclick={() => n++}>+</button>
+          <button id="rev" onclick={() => (items = [...items].reverse())}>r</button>
+          <button id="drop" onclick={() => (items = items.slice(1))}>d</button>
+          <b id="n">{n}</b>
+          {if (open) <input id="field" onmount={(e) => { e.target.value = 'focused'; log.push('in'); return () => log.push('out'); }} />}
+          <ul>{items.map((x) => <li key={x} onmount={() => { log.push('row' + x); return () => log.push('gone' + x); }}>{x}</li>)}</ul>
+        </main>
+      );
+    }`;
+
+  it('runs when the page starts, and its callbacks change state as it is when they run', async () => {
+    log.length = later.length = 0;
+    const { $, fire, loads } = await mount(LIFE, 'Page');
+    await vi.waitFor(() => expect(log).toEqual(['page', 'in', 'row1', 'row2', 'row3']));
+    expect(loads).toEqual(['/c/Page.js']); // loaded at once: it has onmount
+    expect($('#field').value).toBe('focused');
+    fire('#inc', 'click');
+    await vi.waitFor(() => expect($('#n').textContent).toBe('1'));
+    later[0](); // a timer's callback, made at the start: it sees the click's change
+    await vi.waitFor(() => expect($('#n').textContent).toBe('2'));
+    later[1](); // the component's own function, given as a callback
+    await vi.waitFor(() => expect($('#n').textContent).toBe('12'));
+  });
+
+  it("runs the cleanup when the element leaves, again when it's back, and not for a row that moved", async () => {
+    log.length = later.length = 0;
+    const { $, fire } = await mount(LIFE, 'Page');
+    await vi.waitFor(() => expect(log.length).toBe(5));
+    log.length = 0;
+    fire('#open', 'click');
+    await vi.waitFor(() => expect(log).toEqual(['out']));
+    fire('#open', 'click');
+    await vi.waitFor(() => expect(log).toEqual(['out', 'in']));
+    fire('#rev', 'click');
+    await vi.waitFor(() => expect($('li').textContent).toBe('3'));
+    fire('#drop', 'click'); // 3 goes
+    await vi.waitFor(() => expect(log).toEqual(['out', 'in', 'gone3']));
+  });
+
+  it('runs in a component that first appears in the browser, and goal dev runs the new body', async () => {
+    log.length = 0;
+    const { d, $, fire } = await mount(
+      `export function Page() {
+        var open = false;
+        return <div><button id="open" onclick={() => (open = !open)}>o</button>{if (open) <Modal onclose={() => (open = false)} />}</div>;
+      }
+      export function Modal({ onclose }) {
+        var shown = 0;
+        return <p id="modal" onmount={() => {
+          shown++;
+          const esc = (e) => { if (e.key === 'Escape') onclose(); };
+          addEventListener('keydown', esc);
+          log.push('on');
+          return () => { removeEventListener('keydown', esc); log.push('off'); };
+        }}>{shown}</p>;
+      }`,
+      'Page',
+      {},
+      { more: ['mount'] },
+    );
+    fire('#open', 'click');
+    await vi.waitFor(() => expect($('#modal')?.textContent).toBe('1'));
+    dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await vi.waitFor(() => expect($('#modal')).toBe(null));
+    expect(log).toEqual(['on', 'off']);
+    fire('#open', 'click');
+    await vi.waitFor(() => expect(log).toEqual(['on', 'off', 'on']));
+    const body = d.createElement('body');
+    body.innerHTML = '<p>new</p>';
+    d.body.replaceWith(body);
+    d.dispatchEvent(new CustomEvent('goal:listen', { detail: [] }));
+    expect(log).toEqual(['on', 'off', 'on', 'off']);
+  });
+});
+
+describe('callbacks that change state', () => {
+  it('run at once when called in the handler that made them, which waits for their server functions', async () => {
+    let answer;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((ok) => (answer = ok))));
+    const { $, fire } = await mount(
+      `server function save(v) { return v; }
+      export function A() {
+        var n = 0;
+        var msg = '';
+        return <p onclick={() => { const add = () => n++; add(); add(); ['x'].forEach((v) => (msg = save(v))); }}>{n}{msg}</p>;
+      }`,
+      'A',
+    );
+    fire('p', 'click');
+    await vi.waitFor(() => expect($('p').textContent).toBe('2'));
+    answer({ ok: true, json: async () => ({ v: 'x' }) });
+    await vi.waitFor(() => expect($('p').textContent).toBe('2x'));
+    vi.unstubAllGlobals();
   });
 });

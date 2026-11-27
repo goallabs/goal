@@ -27,6 +27,28 @@ describe('server', () => {
     expect(page('<p>x</p>', [], 'n')).not.toContain('<link');
   });
 
+  it('gives the loader that runs onmount only to the pages of an app that has one', () => {
+    const watch = 'm-on*="mount:"';
+    expect(loaderScript()).not.toContain(watch);
+    expect(loaderScript({ mount: true })).toContain(watch);
+    expect(loaderScript()).not.toContain('goal:w');
+    expect(loaderScript({ w: true })).toContain('goal:w');
+    expect(page('<p>x</p>', ['click'], 'n')).not.toContain('goal:w');
+    expect(page('<p>x</p>', ['click'], 'n')).not.toContain(watch);
+    expect(page('<p>x</p>', ['mount'], 'n')).toContain(watch);
+    _$ctx.m = _$ctx.w = true; // a component with onmount and callbacks, which may first appear in the browser
+    try {
+      expect(page('<p>x</p>', ['click'], 'n')).toContain('goal:w');
+      expect(page('<p>x</p>', ['click'], 'n')).toContain(`${watch}`);
+      expect(page('<p>x</p>', ['click'], 'n')).toContain('(document,["click","mount"])');
+      expect(page('<p>x</p>', ['click', 'mount'], 'n')).toContain('(document,["click","mount"])');
+      expect(page('<p>x</p>', [], 'n')).not.toContain('<script');
+    } finally {
+      delete _$ctx.m;
+      delete _$ctx.w;
+    }
+  });
+
   it('uses a document the route wrote, and puts the loader before </body> with the nonce', () => {
     const script = `<meta name="goal-csrf" content=""><script type="module" nonce="abc">${loaderScript().replace('"__GOAL_EVENTS__"', '["click"]')}</script>`;
     expect(page('<html><body><p>x</p></body></html>', ['click'], 'abc')).toBe(`<!doctype html><html><body><p>x</p>${script}</body></html>`);
